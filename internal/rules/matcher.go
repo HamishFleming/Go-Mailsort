@@ -3,8 +3,8 @@ package rules
 import (
 	"strings"
 
-	"github.com/yourname/mailsort/internal/config"
-	"github.com/yourname/mailsort/internal/imapclient"
+	"github.com/HamishFleming/Go-Mailsort/internal/config"
+	"github.com/HamishFleming/Go-Mailsort/internal/imapclient"
 )
 
 type Matcher struct {

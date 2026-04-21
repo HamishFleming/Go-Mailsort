@@ -3,10 +3,10 @@ package cli
 import (
 	"log"
 
-	"github.com/yourname/mailsort/internal/config"
-	"github.com/yourname/mailsort/internal/imapclient"
-	"github.com/yourname/mailsort/internal/imapclient/yahoo"
-	"github.com/yourname/mailsort/internal/rules"
+	"github.com/HamishFleming/Go-Mailsort/internal/config"
+	"github.com/HamishFleming/Go-Mailsort/internal/imapclient"
+	"github.com/HamishFleming/Go-Mailsort/internal/imapclient/yahoo"
+	"github.com/HamishFleming/Go-Mailsort/internal/rules"
 )
 
 var (

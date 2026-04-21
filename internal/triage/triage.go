@@ -3,9 +3,9 @@ package triage
 import (
 	"log"
 
-	"github.com/yourname/mailsort/internal/config"
-	"github.com/yourname/mailsort/internal/imapclient"
-	"github.com/yourname/mailsort/internal/rules"
+	"github.com/HamishFleming/Go-Mailsort/internal/config"
+	"github.com/HamishFleming/Go-Mailsort/internal/imapclient"
+	"github.com/HamishFleming/Go-Mailsort/internal/rules"
 )
 
 type Message struct {

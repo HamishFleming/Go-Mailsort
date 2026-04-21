@@ -6,8 +6,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/yourname/mailsort/internal/cli"
-	"github.com/yourname/mailsort/internal/config"
+	"github.com/HamishFleming/Go-Mailsort/internal/cli"
+	"github.com/HamishFleming/Go-Mailsort/internal/config"
 )
 
 var (

@@ -5,7 +5,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/yourname/mailsort/internal/imapclient"
+	"github.com/HamishFleming/Go-Mailsort/internal/imapclient"
 )
 
 func NewProvider() (imapclient.Provider, error) {
