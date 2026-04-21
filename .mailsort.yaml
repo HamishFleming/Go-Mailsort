@@ -1,0 +1,17 @@
+mailbox: INBOX
+
+rules:
+  - name: linkedin
+    from_contains:
+      - linkedin.com
+    subject_any:
+      - is hiring
+    move_to: LinkedIn
+    mark_as_read: false
+  - name: github
+    from_contains:
+      - github.com
+    subject_any:
+      - GitHub
+    move_to: GitHub
+    mark_as_read: true
