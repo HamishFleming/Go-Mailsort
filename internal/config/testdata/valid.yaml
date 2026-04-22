@@ -1,0 +1,16 @@
+mailbox: INBOX
+
+rules:
+  - name: alerts
+    from_contains:
+      - notify.example.com
+    subject_any:
+      - Alert
+      - Warning
+    move_to: Alerts
+    mark_as_read: true
+
+  - name: newsletters
+    from_contains:
+      - newsletter.com
+    move_to: Newsletters
