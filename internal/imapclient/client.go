@@ -3,6 +3,7 @@ package imapclient
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/emersion/go-imap"
@@ -16,15 +17,15 @@ type Email struct {
 	Body           string
 	Date           time.Time
 	Size           uint32
-	HasAttachments  bool
+	HasAttachments bool
 }
 
 type Config struct {
-	Host   string
-	Port   int
-	User   string
-	Pass   string
-	UseTLS bool
+	Host    string
+	Port    int
+	User    string
+	Pass    string
+	UseTLS  bool
 	Mailbox string
 }
 
@@ -128,6 +129,78 @@ func (c *Client) FetchUnread(mailbox string) ([]Email, error) {
 
 	log.Printf("[DEBUG] fetched %d emails", len(emails))
 	return emails, nil
+}
+
+func (c *Client) EnsureMailboxes(mailboxes []string) ([]string, error) {
+	existing, err := c.mailboxSet()
+	if err != nil {
+		return nil, err
+	}
+
+	var created []string
+	for _, mailbox := range mailboxes {
+		if mailbox == "" {
+			continue
+		}
+
+		if mailboxExists(existing, mailbox) {
+			log.Printf("[INFO] mailbox exists: %s", mailbox)
+			continue
+		}
+
+		if strings.EqualFold(mailbox, "INBOX") {
+			log.Printf("[INFO] mailbox exists: %s", mailbox)
+			continue
+		}
+
+		if err := c.conn.Create(mailbox); err != nil {
+			return created, fmt.Errorf("create mailbox %q: %w", mailbox, err)
+		}
+		existing[mailbox] = struct{}{}
+		created = append(created, mailbox)
+		log.Printf("[INFO] created mailbox: %s", mailbox)
+	}
+
+	return created, nil
+}
+
+func (c *Client) mailboxSet() (map[string]struct{}, error) {
+	mailboxes := make(chan *imap.MailboxInfo, 10)
+	done := make(chan error, 1)
+
+	go func() {
+		done <- c.conn.List("", "*", mailboxes)
+	}()
+
+	existing := make(map[string]struct{})
+	for mailbox := range mailboxes {
+		if mailbox == nil {
+			continue
+		}
+		existing[mailbox.Name] = struct{}{}
+	}
+
+	if err := <-done; err != nil {
+		return nil, fmt.Errorf("list mailboxes: %w", err)
+	}
+
+	return existing, nil
+}
+
+func mailboxExists(existing map[string]struct{}, mailbox string) bool {
+	if _, ok := existing[mailbox]; ok {
+		return true
+	}
+
+	if strings.EqualFold(mailbox, "INBOX") {
+		for name := range existing {
+			if strings.EqualFold(name, mailbox) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (c *Client) Move(uid uint32, folder string) error {

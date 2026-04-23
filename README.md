@@ -68,6 +68,13 @@ Create rule files in the `.mailsort/rules/` directory. Each `.yaml` file can con
 
 ## Usage
 
+### Initialize IMAP folders
+```bash
+mailsort init
+```
+
+Checks the configured source mailbox and destination folders from enabled rules, creating any missing IMAP folders.
+
 ### List unread emails
 ```bash
 mailsort scan
@@ -122,6 +129,24 @@ Disable a rule:
 mailsort rules disable "newsletter"
 ```
 
+### IMAP debugging toolkit
+
+Inspect IMAP capabilities, mailboxes, flags, and search behavior:
+
+```bash
+mailsort imap-debug capabilities
+mailsort imap-debug list "*"
+mailsort imap-debug select INBOX
+mailsort imap-debug fetch-flags 1:10
+mailsort imap-debug fetch-headers 1:10
+mailsort imap-debug search UNSEEN
+mailsort imap-debug search SINCE 1-Feb-2026
+mailsort imap-debug search KEYWORD Work
+mailsort imap-debug store 1 + Work Important
+```
+
+See `docs/imap-debug.md` for a full command reference and raw IMAP examples.
+
 ## How It Works
 
 1. **Configuration Loading**: Mailsort reads the main config from `.mailsort.yaml` which specifies the `rules_dir` directory. All `.yaml` files in that directory are loaded as rules.
@@ -164,6 +189,7 @@ mailsort rules disable "newsletter"
 
 | Command | Description |
 |---------|-------------|
+| `init` | Create missing IMAP folders required by enabled rules |
 | `scan` | List unread emails in the mailbox |
 | `preview` | Show which emails match which rules (without moving) |
 | `apply` | Move matching emails to their destination folders (use `--dry-run` to preview) |

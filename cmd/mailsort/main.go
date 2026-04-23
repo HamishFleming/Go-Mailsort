@@ -9,6 +9,7 @@ import (
 
 	"github.com/HamishFleming/Go-Mailsort/internal/cli"
 	"github.com/HamishFleming/Go-Mailsort/internal/config"
+	"github.com/HamishFleming/Go-Mailsort/internal/imapdebug"
 )
 
 var (
@@ -38,21 +39,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	cmd := flag.Arg(0)
+
 	rulesDir := cfg.RulesDir
 	if rulesDir == "" {
 		rulesDir = filepath.Join(filepath.Dir(configFile), "rules")
 	}
 
-	rules, err := config.LoadRulesFromDir(rulesDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "load rules: %v\n", err)
-		os.Exit(1)
+	if cmd != "imap-debug" {
+		rules, err := config.LoadRulesFromDir(rulesDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "load rules: %v\n", err)
+			os.Exit(1)
+		}
+		cfg.Rules = rules
 	}
-	cfg.Rules = rules
 
-	cmd := flag.Arg(0)
 	var runErr error
 	switch cmd {
+	case "init":
+		runErr = cli.Init(cfg)
 	case "scan":
 		runErr = cli.Scan(cfg)
 	case "preview":
@@ -61,6 +67,8 @@ func main() {
 		runErr = cli.Apply(cfg)
 	case "rules":
 		runErr = cli.Rules(cfg, rulesDir, flag.Args()[1:])
+	case "imap-debug":
+		runErr = imapdebug.Run(cfg, flag.Args()[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
 		flag.Usage()
@@ -68,7 +76,7 @@ func main() {
 	}
 
 	if runErr != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: %v\n", runErr)
 		os.Exit(1)
 	}
 }
@@ -78,10 +86,12 @@ func init() {
 		fmt.Println("Usage: mailsort <command> [options]")
 		fmt.Println()
 		fmt.Println("Commands:")
+		fmt.Println("  init      Create missing IMAP folders required by active rules")
 		fmt.Println("  scan      List unread emails")
 		fmt.Println("  preview   Show which emails match which rules")
 		fmt.Println("  apply     Move matching emails")
-		fmt.Println("  rules     Manage rules (list, add, remove, update)")
+		fmt.Println("  rules     Manage rules (list, add, remove, update, enable, disable)")
+		fmt.Println("  imap-debug IMAP debugging toolkit")
 		fmt.Println()
 		fmt.Println("Flags:")
 		flag.PrintDefaults()
