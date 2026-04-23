@@ -1,10 +1,14 @@
 - name: linkedin
+  enabled: true
   priority: 10
   from_contains:
     - linkedin.com
   subject_any:
     - is hiring
   body_any: []
+  date_after: "2024-01-01"
+  has_attachments: false
+  min_size: 1000
   move_to: LinkedIn
   mark_as_read: false
   chain: false

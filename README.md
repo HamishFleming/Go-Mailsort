@@ -52,10 +52,16 @@ Create rule files in the `.mailsort/rules/` directory. Each `.yaml` file can con
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | string | Rule identifier (must be unique) |
+| `enabled` | bool | Enable/disable rule (default: true) |
 | `priority` | int | Execution order (lower = runs first) |
 | `from_contains` | []string | Match if sender contains any of these strings |
 | `subject_any` | []string | Match if subject contains any of these strings |
 | `body_any` | []string | Match if body contains any of these strings |
+| `date_after` | string | Match if email date is after this (RFC3339: "2024-01-15" or relative: "-7d") |
+| `date_before` | string | Match if email date is before this (RFC3339: "2024-12-31" or relative: "-30d") |
+| `has_attachments` | bool | Match if email has attachments (true/false) |
+| `min_size` | uint32 | Match if email size is at least this many bytes |
+| `max_size` | uint32 | Match if email size is at most this many bytes |
 | `move_to` | string | Destination folder for matching emails |
 | `mark_as_read` | bool | Mark email as read after moving |
 | `chain` | bool | If true, continue matching with next rules after this one |
@@ -89,11 +95,11 @@ List all rules (sorted by priority):
 mailsort rules list
 ```
 
-Add a new rule (with priority and optional chain flag):
+Add a new rule (with priority, enabled, and optional chain flag):
 ```bash
-mailsort rules add 30 "newsletter" "newsletter@example.com" "Newsletter,Update" "" "Newsletters" "true" [chain]
+mailsort rules add 30 true "newsletter" "newsletter@example.com" "Newsletter,Update" "" "Newsletters" "true" [chain]
 # Example with chaining enabled:
-mailsort rules add 30 "newsletter" "newsletter@example.com" "Newsletter" "" "Newsletters" "true" "true"
+mailsort rules add 30 true "newsletter" "newsletter@example.com" "Newsletter" "" "Newsletters" "true" "true"
 ```
 
 Remove a rule:
@@ -101,9 +107,19 @@ Remove a rule:
 mailsort rules remove "newsletter"
 ```
 
-Update an existing rule (with priority and optional chain flag):
+Update an existing rule (with priority, enabled, and optional chain flag):
 ```bash
-mailsort rules update "newsletter" 30 "newsletter@example.com,updates@example.com" "Newsletter,Update,Alert" "" "Newsletters" "false" [chain]
+mailsort rules update "newsletter" 30 true "newsletter@example.com,updates@example.com" "Newsletter,Update,Alert" "" "Newsletters" "false" [chain]
+```
+
+Enable a rule:
+```bash
+mailsort rules enable "newsletter"
+```
+
+Disable a rule:
+```bash
+mailsort rules disable "newsletter"
 ```
 
 ## How It Works
@@ -114,10 +130,15 @@ mailsort rules update "newsletter" 30 "newsletter@example.com,updates@example.co
 
 3. **Email Fetching**: When you run a command, Mailsort connects to your IMAP server (currently supports Yahoo) and fetches unread emails from the specified mailbox.
 
-4. **Rule Matching with Chaining**: The rules engine (`internal/rules/matcher.go`) evaluates each email against your rules in priority order. A rule matches if:
+4. **Rule Matching with Chaining**: The rules engine (`internal/rules/matcher.go`) evaluates each email against your rules in priority order. A rule matches if ALL specified criteria are met:
    - The sender contains any of the `from_contains` strings (if specified)
    - The subject contains any of the `subject_any` strings (if specified)
    - The body contains any of the `body_any` strings (if specified)
+   - The email date is after `date_after` (if specified, RFC3339 or relative like "-7d")
+   - The email date is before `date_before` (if specified, RFC3339 or relative like "-30d")
+   - The email has attachments matches `has_attachments` (if specified)
+   - The email size is at least `min_size` bytes (if specified)
+   - The email size is at most `max_size` bytes (if specified)
 
 5. **Rule Chaining**: When a rule matches and has `chain: true`:
    - The rule's actions are applied (move email, mark as read)

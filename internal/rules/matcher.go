@@ -1,7 +1,11 @@
 package rules
 
 import (
+	"fmt"
+	"log"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/HamishFleming/Go-Mailsort/internal/config"
 	"github.com/HamishFleming/Go-Mailsort/internal/imapclient"
@@ -29,6 +33,11 @@ func (m *Matcher) Match(email *imapclient.Email) []*config.Rule {
 }
 
 func (m *Matcher) matchRule(rule *config.Rule, email *imapclient.Email) bool {
+	// Check if rule is enabled (default true if not specified)
+	if rule.Enabled != nil && !*rule.Enabled {
+		return false
+	}
+
 	if len(rule.FromContains) > 0 {
 		matched := false
 		for _, f := range rule.FromContains {
@@ -55,5 +64,66 @@ func (m *Matcher) matchRule(rule *config.Rule, email *imapclient.Email) bool {
 		}
 	}
 
+	// Date filtering
+	if rule.DateAfter != nil {
+		afterDate, err := parseDate(*rule.DateAfter)
+		if err != nil {
+			log.Printf("[WARN] invalid date_after format: %s", *rule.DateAfter)
+		} else if email.Date.Before(afterDate) {
+			return false
+		}
+	}
+
+	if rule.DateBefore != nil {
+		beforeDate, err := parseDate(*rule.DateBefore)
+		if err != nil {
+			log.Printf("[WARN] invalid date_before format: %s", *rule.DateBefore)
+		} else if email.Date.After(beforeDate) {
+			return false
+		}
+	}
+
+	// Attachment filtering
+	if rule.HasAttachments != nil {
+		if email.HasAttachments != *rule.HasAttachments {
+			return false
+		}
+	}
+
+	// Size filtering
+	if rule.MinSize != nil {
+		if email.Size < *rule.MinSize {
+			return false
+		}
+	}
+
+	if rule.MaxSize != nil {
+		if email.Size > *rule.MaxSize {
+			return false
+		}
+	}
+
 	return true
+}
+
+func parseDate(s string) (time.Time, error) {
+	// Try relative date format (e.g., "-30d" for 30 days ago)
+	if strings.HasPrefix(s, "-") && strings.HasSuffix(s, "d") {
+		daysStr := strings.TrimSuffix(strings.TrimPrefix(s, "-"), "d")
+		if days, err := strconv.Atoi(daysStr); err == nil && days > 0 {
+			return time.Now().AddDate(0, 0, -days), nil
+		}
+	}
+
+	// Try RFC3339 with time
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+
+	// Try date-only format (add time 00:00:00)
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t, nil
+	}
+
+	return time.Time{}, fmt.Errorf("invalid date format: %s", s)
 }

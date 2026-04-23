@@ -7,25 +7,29 @@ CLI email triaging tool that sorts mail between IMAP folders based on configurab
 ## Commands
 
 - `mailsort scan` - list unread emails  
-- `mailsort preview` - show which emails match which rules
+- `mailsort preview` - show which emails match which rules (with summary)
 - `mailsort apply` - move matching emails (dry-run with --dry-run)
-- `mailsort rules` - manage rules (not yet implemented)
+- `mailsort rules` - manage rules (list, add, remove, update, enable, disable)
 
 ## Active Work
 
-- All core commands working: scan, preview, apply
-- Apply attempts to move emails; fails if destination folders don't exist
+- Feature branch `feature/email-filtering` ready for PR
+- All core commands working: scan, preview, apply, rules
+- Rule filtering: date ranges (absolute & relative), attachments, size limits
+- Rule management with enable/disable functionality
 
 ## Recent Changes
 
+- Added `enabled` flag to rules for enabling/disabling without deletion
+- Added `enable` and `disable` subcommands to rules command
+- Updated preview command to show match summary (total matched, per rule)
+- Added relative date support (e.g., "-30d" for older than 30 days)
+- Added email filtering criteria: date_after, date_before, has_attachments, min_size, max_size
+- Added Date, Size, HasAttachments fields to Email struct
 - Implemented multiple rule files in directory with priority-based ordering
 - Added rule chaining support (chain field) for sequential rule application
-- Updated config to load rules from `.mailsort/rules/` directory
-- Added `priority` field to rules for execution order
-- Updated `Match()` to return `[]*config.Rule` for chaining support
-- Updated triage package to handle multiple matched rules
-- All core commands working: scan, preview, apply, rules
 - Built out `mailsort rules` command with list, add, remove, update subcommands
-- Added `config.LoadRulesFromDir()` for directory-based rule loading
-- Added `config.LoadMainConfig()` for main config file
-- Updated README with new configuration format and chaining documentation
+- Extended preview command to show email subject and destination folder
+- Added date parsing for RFC3339, date-only (2006-01-02), and relative formats
+- Created example rule files with new filtering criteria
+- All tests pass, build successful
