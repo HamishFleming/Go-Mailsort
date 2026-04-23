@@ -7,6 +7,7 @@ CLI email triaging tool that sorts, copies, flags, auto-archives, or deletes mai
 ## Commands
 
 - `mailsort scan` - list unread emails  
+- `mailsort scan --summary-md` - list unread emails and write a Markdown report
 - `mailsort init` - create missing IMAP folders required by enabled rules
 - `mailsort preview` - show which emails match which rules/actions (with summary)
 - `mailsort apply` - move/copy/delete/flag/mark matching emails (dry-run with --dry-run)
@@ -15,8 +16,9 @@ CLI email triaging tool that sorts, copies, flags, auto-archives, or deletes mai
 
 ## Active Work
 
-- Feature branch `feature/imap-debug-toolkit` implementing issue #3
+- Feature branch `feature/4-summary-md-report` implementing issue #4
 - All core commands working: scan, preview, apply, rules
+- Markdown summary reports are available for scan, preview, and apply via `--summary-md`
 - Rule filtering: date ranges (absolute & relative), attachments, size limits
 - Rule filtering: source folder, age (`older_than`/`newer_than`), unread/read status
 - Rule actions: move, copy, mark as read, flag important, delete, dry-run
@@ -25,6 +27,10 @@ CLI email triaging tool that sorts, copies, flags, auto-archives, or deletes mai
 
 ## Recent Changes
 
+- Added `--summary-md` and `--summary-path` flags for `scan`, `preview`, and `apply`.
+- Added `internal/report` Markdown renderer with run metadata, counts, important-first grouping, compact one-line email entries (`[sender] subject -> action`), action status, and warnings section.
+- Wired summary generation into scan, preview, apply, including dry-run clarity for preview and `apply --dry-run`.
+- Documented Markdown summary report usage and deterministic importance heuristics in README.
 - Added `score`, `copy_to`, and `flag_important` rule fields.
 - Added IMAP copy and important-flag operations.
 - Apply now batches compatible IMAP operations by mailbox and destination/action instead of mutating one email at a time.

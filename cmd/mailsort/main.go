@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/HamishFleming/Go-Mailsort/internal/cli"
 	"github.com/HamishFleming/Go-Mailsort/internal/config"
@@ -13,17 +14,27 @@ import (
 )
 
 var (
-	configFile string
-	verbose    bool
-	dryRun     bool
+	configFile  string
+	verbose     bool
+	dryRun      bool
+	summaryMD   bool
+	summaryPath string
 )
 
 func main() {
 	flag.StringVar(&configFile, "config", ".mailsort.yaml", "config file")
 	flag.BoolVar(&verbose, "v", false, "verbose logging")
 	flag.BoolVar(&dryRun, "dry-run", false, "don't actually modify emails")
+	flag.BoolVar(&summaryMD, "summary-md", false, "write a Markdown summary report")
+	flag.StringVar(&summaryPath, "summary-path", "", "Markdown summary output path")
 	flag.Parse()
 	dryRun = dryRun || hasArg(os.Args[1:], "--dry-run") || hasArg(os.Args[1:], "-dry-run")
+	summaryMD = summaryMD || hasArg(os.Args[1:], "--summary-md") || hasArg(os.Args[1:], "-summary-md")
+	if path, ok := argValue(os.Args[1:], "--summary-path"); ok {
+		summaryPath = path
+	} else if path, ok := argValue(os.Args[1:], "-summary-path"); ok {
+		summaryPath = path
+	}
 
 	if flag.NArg() < 1 {
 		flag.Usage()
@@ -32,6 +43,8 @@ func main() {
 
 	cli.Verbose = verbose
 	cli.DryRun = dryRun
+	cli.SummaryMarkdown = summaryMD
+	cli.SummaryPath = summaryPath
 	log.SetOutput(os.Stderr)
 
 	cfg, err := config.LoadMainConfig(configFile)
@@ -89,6 +102,19 @@ func hasArg(args []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func argValue(args []string, name string) (string, bool) {
+	prefix := name + "="
+	for i, arg := range args {
+		if strings.HasPrefix(arg, prefix) {
+			return strings.TrimPrefix(arg, prefix), true
+		}
+		if arg == name && i+1 < len(args) {
+			return args[i+1], true
+		}
+	}
+	return "", false
 }
 
 func init() {
