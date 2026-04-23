@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -59,7 +60,7 @@ func (m *Matcher) matchRule(rule *config.Rule, email *imapclient.Email) bool {
 
 	// Date filtering
 	if rule.DateAfter != nil {
-		afterDate, err := time.Parse(time.RFC3339, *rule.DateAfter)
+		afterDate, err := parseDate(*rule.DateAfter)
 		if err != nil {
 			log.Printf("[WARN] invalid date_after format: %s", *rule.DateAfter)
 		} else if email.Date.Before(afterDate) {
@@ -68,7 +69,7 @@ func (m *Matcher) matchRule(rule *config.Rule, email *imapclient.Email) bool {
 	}
 
 	if rule.DateBefore != nil {
-		beforeDate, err := time.Parse(time.RFC3339, *rule.DateBefore)
+		beforeDate, err := parseDate(*rule.DateBefore)
 		if err != nil {
 			log.Printf("[WARN] invalid date_before format: %s", *rule.DateBefore)
 		} else if email.Date.After(beforeDate) {
@@ -97,4 +98,16 @@ func (m *Matcher) matchRule(rule *config.Rule, email *imapclient.Email) bool {
 	}
 
 	return true
+}
+
+func parseDate(s string) (time.Time, error) {
+	// Try RFC3339 with time first
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	// Try date-only format (add time 00:00:00)
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("invalid date format: %s", s)
 }
