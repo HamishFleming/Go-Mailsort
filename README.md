@@ -95,11 +95,11 @@ List all rules (sorted by priority):
 mailsort rules list
 ```
 
-Add a new rule (with priority and optional chain flag):
+Add a new rule (with priority, enabled, and optional chain flag):
 ```bash
-mailsort rules add 30 "newsletter" "newsletter@example.com" "Newsletter,Update" "" "Newsletters" "true" [chain]
+mailsort rules add 30 true "newsletter" "newsletter@example.com" "Newsletter,Update" "" "Newsletters" "true" [chain]
 # Example with chaining enabled:
-mailsort rules add 30 "newsletter" "newsletter@example.com" "Newsletter" "" "Newsletters" "true" "true"
+mailsort rules add 30 true "newsletter" "newsletter@example.com" "Newsletter" "" "Newsletters" "true" "true"
 ```
 
 Remove a rule:
@@ -107,9 +107,19 @@ Remove a rule:
 mailsort rules remove "newsletter"
 ```
 
-Update an existing rule (with priority and optional chain flag):
+Update an existing rule (with priority, enabled, and optional chain flag):
 ```bash
-mailsort rules update "newsletter" 30 "newsletter@example.com,updates@example.com" "Newsletter,Update,Alert" "" "Newsletters" "false" [chain]
+mailsort rules update "newsletter" 30 true "newsletter@example.com,updates@example.com" "Newsletter,Update,Alert" "" "Newsletters" "false" [chain]
+```
+
+Enable a rule:
+```bash
+mailsort rules enable "newsletter"
+```
+
+Disable a rule:
+```bash
+mailsort rules disable "newsletter"
 ```
 
 ## How It Works

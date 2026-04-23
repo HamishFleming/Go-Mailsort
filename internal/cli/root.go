@@ -79,12 +79,43 @@ func Preview(cfg *config.Config) error {
 
 	log.Printf("matching %d emails against %d rules", len(emails), len(cfg.Rules))
 
+	// Track statistics
+	totalMatched := 0
+	ruleMatchCount := make(map[string]int)
+	var matchedEmails []struct {
+		uid     uint32
+		subject string
+		rules   []string
+	}
+
 	for _, email := range emails {
 		matchedRules := matcher.Match(&email)
 		if len(matchedRules) > 0 {
-			for _, rule := range matchedRules {
+			totalMatched++
+			ruleNames := make([]string, len(matchedRules))
+			for i, rule := range matchedRules {
 				log.Printf("  UID=%d subject=%q -> %s (rule: %s)", email.Uid, email.Subject, rule.MoveTo, rule.Name)
+				ruleNames[i] = rule.Name
+				ruleMatchCount[rule.Name]++
 			}
+			matchedEmails = append(matchedEmails, struct {
+				uid     uint32
+				subject string
+				rules   []string
+			}{email.Uid, email.Subject, ruleNames})
+		}
+	}
+
+	// Print summary
+	log.Printf("")
+	log.Printf("=== Summary ===")
+	log.Printf("Total emails matched: %d/%d", totalMatched, len(emails))
+	log.Printf("")
+	log.Printf("Matches per rule:")
+	for _, rule := range cfg.Rules {
+		count := ruleMatchCount[rule.Name]
+		if count > 0 {
+			log.Printf("  %s: %d emails", rule.Name, count)
 		}
 	}
 
@@ -413,7 +444,41 @@ func Rules(cfg *config.Config, rulesDir string, args []string) error {
 		return removeRule(cfg, rulesDir, args[1:])
 	case "update":
 		return updateRule(cfg, rulesDir, args[1:])
+	case "enable":
+		return setRuleEnabled(cfg, rulesDir, args[1:], true)
+	case "disable":
+		return setRuleEnabled(cfg, rulesDir, args[1:], false)
 	default:
-		return fmt.Errorf("unknown rules subcommand: %s\nValid subcommands: list, add, remove, update", subcommand)
+		return fmt.Errorf("unknown rules subcommand: %s\nValid subcommands: list, add, remove, update, enable, disable", subcommand)
 	}
+}
+
+func setRuleEnabled(cfg *config.Config, rulesDir string, args []string, enabled bool) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: mailsort rules %s <name>", map[bool]string{true: "enable", false: "disable"}[enabled])
+	}
+
+	name := args[0]
+	index := -1
+	for i, rule := range cfg.Rules {
+		if rule.Name == name {
+			index = i
+			break
+		}
+	}
+
+	if index == -1 {
+		return fmt.Errorf("rule '%s' not found", name)
+	}
+
+	cfg.Rules[index].Enabled = &enabled
+	log.Printf("rule '%s' %s", name, map[bool]string{true: "enabled", false: "disabled"}[enabled])
+
+	// Update the rule file in the rules directory
+	filename := filepath.Join(rulesDir, fmt.Sprintf("%d-%s.yaml", cfg.Rules[index].Priority, name))
+	data, err := yaml.Marshal([]config.Rule{cfg.Rules[index]})
+	if err != nil {
+		return fmt.Errorf("marshal rule: %w", err)
+	}
+	return os.WriteFile(filename, data, 0644)
 }
