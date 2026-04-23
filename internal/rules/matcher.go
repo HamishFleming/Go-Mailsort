@@ -1,7 +1,9 @@
 package rules
 
 import (
+	"log"
 	"strings"
+	"time"
 
 	"github.com/HamishFleming/Go-Mailsort/internal/config"
 	"github.com/HamishFleming/Go-Mailsort/internal/imapclient"
@@ -51,6 +53,45 @@ func (m *Matcher) matchRule(rule *config.Rule, email *imapclient.Email) bool {
 			}
 		}
 		if !matched {
+			return false
+		}
+	}
+
+	// Date filtering
+	if rule.DateAfter != nil {
+		afterDate, err := time.Parse(time.RFC3339, *rule.DateAfter)
+		if err != nil {
+			log.Printf("[WARN] invalid date_after format: %s", *rule.DateAfter)
+		} else if email.Date.Before(afterDate) {
+			return false
+		}
+	}
+
+	if rule.DateBefore != nil {
+		beforeDate, err := time.Parse(time.RFC3339, *rule.DateBefore)
+		if err != nil {
+			log.Printf("[WARN] invalid date_before format: %s", *rule.DateBefore)
+		} else if email.Date.After(beforeDate) {
+			return false
+		}
+	}
+
+	// Attachment filtering
+	if rule.HasAttachments != nil {
+		if email.HasAttachments != *rule.HasAttachments {
+			return false
+		}
+	}
+
+	// Size filtering
+	if rule.MinSize != nil {
+		if email.Size < *rule.MinSize {
+			return false
+		}
+	}
+
+	if rule.MaxSize != nil {
+		if email.Size > *rule.MaxSize {
 			return false
 		}
 	}

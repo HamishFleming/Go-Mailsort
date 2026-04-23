@@ -56,6 +56,11 @@ Create rule files in the `.mailsort/rules/` directory. Each `.yaml` file can con
 | `from_contains` | []string | Match if sender contains any of these strings |
 | `subject_any` | []string | Match if subject contains any of these strings |
 | `body_any` | []string | Match if body contains any of these strings |
+| `date_after` | string | Match if email date is after this (RFC3339: "2024-01-15") |
+| `date_before` | string | Match if email date is before this (RFC3339: "2024-12-31") |
+| `has_attachments` | bool | Match if email has attachments (true/false) |
+| `min_size` | uint32 | Match if email size is at least this many bytes |
+| `max_size` | uint32 | Match if email size is at most this many bytes |
 | `move_to` | string | Destination folder for matching emails |
 | `mark_as_read` | bool | Mark email as read after moving |
 | `chain` | bool | If true, continue matching with next rules after this one |
@@ -114,10 +119,15 @@ mailsort rules update "newsletter" 30 "newsletter@example.com,updates@example.co
 
 3. **Email Fetching**: When you run a command, Mailsort connects to your IMAP server (currently supports Yahoo) and fetches unread emails from the specified mailbox.
 
-4. **Rule Matching with Chaining**: The rules engine (`internal/rules/matcher.go`) evaluates each email against your rules in priority order. A rule matches if:
+4. **Rule Matching with Chaining**: The rules engine (`internal/rules/matcher.go`) evaluates each email against your rules in priority order. A rule matches if ALL specified criteria are met:
    - The sender contains any of the `from_contains` strings (if specified)
    - The subject contains any of the `subject_any` strings (if specified)
    - The body contains any of the `body_any` strings (if specified)
+   - The email date is after `date_after` (if specified, RFC3339 format)
+   - The email date is before `date_before` (if specified, RFC3339 format)
+   - The email has attachments matches `has_attachments` (if specified)
+   - The email size is at least `min_size` bytes (if specified)
+   - The email size is at most `max_size` bytes (if specified)
 
 5. **Rule Chaining**: When a rule matches and has `chain: true`:
    - The rule's actions are applied (move email, mark as read)

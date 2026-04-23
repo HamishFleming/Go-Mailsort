@@ -3,16 +3,20 @@ package imapclient
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
 )
 
 type Email struct {
-	Uid     uint32
-	From    string
-	Subject string
-	Body    string
+	Uid            uint32
+	From           string
+	Subject        string
+	Body           string
+	Date           time.Time
+	Size           uint32
+	HasAttachments  bool
 }
 
 type Config struct {
@@ -87,6 +91,8 @@ func (c *Client) FetchUnread(mailbox string) ([]Email, error) {
 		done <- c.conn.Fetch(seqSet, []imap.FetchItem{
 			imap.FetchEnvelope,
 			imap.FetchUid,
+			imap.FetchBodyStructure,
+			imap.FetchRFC822Size,
 		}, ch)
 	}()
 
@@ -101,10 +107,18 @@ func (c *Client) FetchUnread(mailbox string) ([]Email, error) {
 			from = msg.Envelope.From[0].Address()
 		}
 
+		hasAttachments := false
+		if msg.BodyStructure != nil {
+			hasAttachments = checkForAttachments(msg.BodyStructure)
+		}
+
 		emails = append(emails, Email{
-			Uid:     msg.Uid,
-			From:    from,
-			Subject: msg.Envelope.Subject,
+			Uid:            msg.Uid,
+			From:           from,
+			Subject:        msg.Envelope.Subject,
+			Date:           msg.Envelope.Date,
+			Size:           msg.Size,
+			HasAttachments: hasAttachments,
 		})
 	}
 
@@ -145,4 +159,27 @@ func (c *Client) MarkAsRead(uid uint32) error {
 		return fmt.Errorf("store: %w", err)
 	}
 	return nil
+}
+
+func checkForAttachments(bs *imap.BodyStructure) bool {
+	if bs == nil {
+		return false
+	}
+
+	if bs.MIMEType == "multipart" && bs.MIMESubType == "mixed" {
+		for _, child := range bs.Parts {
+			if child.Disposition != "" && child.Disposition == "attachment" {
+				return true
+			}
+			if checkForAttachments(child) {
+				return true
+			}
+		}
+	}
+
+	if bs.Disposition == "attachment" {
+		return true
+	}
+
+	return false
 }

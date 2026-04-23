@@ -116,12 +116,17 @@ func LoadMainConfig(path string) (*Config, error) {
 }
 
 type Rule struct {
-	Name         string   `yaml:"name"`
-	Priority     int      `yaml:"priority"`
-	FromContains []string `yaml:"from_contains"`
-	SubjectAny   []string `yaml:"subject_any"`
-	BodyAny      []string `yaml:"body_any"`
-	MoveTo       string   `yaml:"move_to"`
-	MarkAsRead   bool     `yaml:"mark_as_read"`
-	Chain        bool     `yaml:"chain"`
+	Name           string   `yaml:"name"`
+	Priority       int      `yaml:"priority"`
+	FromContains   []string `yaml:"from_contains"`
+	SubjectAny     []string `yaml:"subject_any"`
+	BodyAny        []string `yaml:"body_any"`
+	DateAfter      *string  `yaml:"date_after,omitempty"`      // RFC3339 format: "2024-01-15"
+	DateBefore     *string  `yaml:"date_before,omitempty"`     // RFC3339 format: "2024-12-31"
+	HasAttachments *bool    `yaml:"has_attachments,omitempty"`
+	MinSize        *uint32  `yaml:"min_size,omitempty"`        // in bytes
+	MaxSize        *uint32  `yaml:"max_size,omitempty"`        // in bytes
+	MoveTo         string   `yaml:"move_to"`
+	MarkAsRead     bool     `yaml:"mark_as_read"`
+	Chain          bool     `yaml:"chain"`
 }
