@@ -2,6 +2,7 @@ package triage
 
 import (
 	"log"
+	"strings"
 
 	"github.com/HamishFleming/Go-Mailsort/internal/config"
 	"github.com/HamishFleming/Go-Mailsort/internal/imapclient"
@@ -9,8 +10,8 @@ import (
 )
 
 type Message struct {
-	Email      *imapclient.Email
-	Rule       *config.Rule
+	Email       *imapclient.Email
+	Rules       []*config.Rule
 }
 
 type Triage struct {
@@ -25,16 +26,20 @@ func NewTriage(emails []imapclient.Email, matcher *rules.Matcher) []Message {
 
 	for i := range emails {
 		email := &emails[i]
-		rule := matcher.Match(email)
+		matchedRules := matcher.Match(email)
 
-		log.Printf("[DEBUG] triage.NewTriage: email[%d] UID=%d, rule=%v", i, email.Uid, ruleName(rule))
+		ruleNames := make([]string, len(matchedRules))
+		for j, r := range matchedRules {
+			ruleNames[j] = r.Name
+		}
+		log.Printf("[DEBUG] triage.NewTriage: email[%d] UID=%d, rules=%v", i, email.Uid, strings.Join(ruleNames, ", "))
 
 		triages = append(triages, Message{
 			Email: email,
-			Rule:  rule,
+			Rules: matchedRules,
 		})
 
-		if rule != nil {
+		if len(matchedRules) > 0 {
 			matchedCount++
 		}
 	}
@@ -44,9 +49,13 @@ func NewTriage(emails []imapclient.Email, matcher *rules.Matcher) []Message {
 	return triages
 }
 
-func ruleName(r *config.Rule) string {
-	if r == nil {
+func ruleNames(rs []*config.Rule) string {
+	if len(rs) == 0 {
 		return "<nil>"
 	}
-	return r.Name
+	names := make([]string, len(rs))
+	for i, r := range rs {
+		names[i] = r.Name
+	}
+	return strings.Join(names, ", ")
 }

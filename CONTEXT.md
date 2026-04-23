@@ -18,12 +18,14 @@ CLI email triaging tool that sorts mail between IMAP folders based on configurab
 
 ## Recent Changes
 
-- Built out `mailsort rules` command with list, add, remove, update subcommands
-- Added `config.Save` function to persist rule changes to YAML
-- Added helper functions: `splitCsv` for parsing comma-separated values, `parseBool` for boolean parsing
+- Implemented multiple rule files in directory with priority-based ordering
+- Added rule chaining support (chain field) for sequential rule application
+- Updated config to load rules from `.mailsort/rules/` directory
+- Added `priority` field to rules for execution order
+- Updated `Match()` to return `[]*config.Rule` for chaining support
+- Updated triage package to handle multiple matched rules
 - All core commands working: scan, preview, apply, rules
-- Added test suite for rules, triage, and config packages
-- Implemented Apply command with --dry-run flag
-- Implemented Preview command showing rule matches
-- Implemented provider pattern for Yahoo IMAP
-- Scan command working (connects and lists unread emails)
+- Built out `mailsort rules` command with list, add, remove, update subcommands
+- Added `config.LoadRulesFromDir()` for directory-based rule loading
+- Added `config.LoadMainConfig()` for main config file
+- Updated README with new configuration format and chaining documentation

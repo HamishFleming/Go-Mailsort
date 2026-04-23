@@ -15,13 +15,17 @@ func NewMatcher(rules []config.Rule) *Matcher {
 	return &Matcher{rules: rules}
 }
 
-func (m *Matcher) Match(email *imapclient.Email) *config.Rule {
+func (m *Matcher) Match(email *imapclient.Email) []*config.Rule {
+	var matchedRules []*config.Rule
 	for i := range m.rules {
 		if m.matchRule(&m.rules[i], email) {
-			return &m.rules[i]
+			matchedRules = append(matchedRules, &m.rules[i])
+			if !m.rules[i].Chain {
+				break
+			}
 		}
 	}
-	return nil
+	return matchedRules
 }
 
 func (m *Matcher) matchRule(rule *config.Rule, email *imapclient.Email) bool {

@@ -3,12 +3,16 @@ package cli
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/HamishFleming/Go-Mailsort/internal/config"
 	"github.com/HamishFleming/Go-Mailsort/internal/imapclient"
 	"github.com/HamishFleming/Go-Mailsort/internal/imapclient/yahoo"
 	"github.com/HamishFleming/Go-Mailsort/internal/rules"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -76,9 +80,13 @@ func Preview(cfg *config.Config) error {
 	log.Printf("matching %d emails against %d rules", len(emails), len(cfg.Rules))
 
 	for _, email := range emails {
-		rule := matcher.Match(&email)
-		if rule != nil {
-			log.Printf("  UID=%d match=%q -> %s", email.Uid, rule.Name, rule.MoveTo)
+		matchedRules := matcher.Match(&email)
+		if len(matchedRules) > 0 {
+			ruleNames := make([]string, len(matchedRules))
+			for i, r := range matchedRules {
+				ruleNames[i] = r.Name
+			}
+			log.Printf("  UID=%d matches=%v", email.Uid, ruleNames)
 		}
 	}
 
@@ -118,28 +126,35 @@ func Apply(cfg *config.Config) error {
 
 	moved := 0
 	for _, email := range emails {
-		rule := matcher.Match(&email)
-		if rule != nil {
-			log.Printf("would move UID=%d to %s", email.Uid, rule.MoveTo)
+		matchedRules := matcher.Match(&email)
+		if len(matchedRules) > 0 {
+			ruleNames := make([]string, len(matchedRules))
+			for i, r := range matchedRules {
+				ruleNames[i] = r.Name
+			}
+			log.Printf("UID=%d matched rules: %v", email.Uid, ruleNames)
 
-			if !DryRun {
-				if err := client.Move(email.Uid, rule.MoveTo); err != nil {
-					log.Printf("ERROR: move failed: %v", err)
-					continue
-				}
+			for _, rule := range matchedRules {
+				log.Printf("  applying rule '%s': move to %s", rule.Name, rule.MoveTo)
 
-				if rule.MarkAsRead {
-					if err := client.MarkAsRead(email.Uid); err != nil {
-						log.Printf("WARN: mark as read failed: %v", err)
+				if !DryRun {
+					if err := client.Move(email.Uid, rule.MoveTo); err != nil {
+						log.Printf("ERROR: move failed: %v", err)
+						continue
+					}
+
+					if rule.MarkAsRead {
+						if err := client.MarkAsRead(email.Uid); err != nil {
+							log.Printf("WARN: mark as read failed: %v", err)
+						}
 					}
 				}
 			}
-
 			moved++
 		}
 	}
 
-	log.Printf("moved %d emails", moved)
+	log.Printf("processed %d emails with matching rules", moved)
 	return nil
 }
 
@@ -150,7 +165,7 @@ func listRules(cfg *config.Config) error {
 	}
 
 	for i, rule := range cfg.Rules {
-		log.Printf("%d. %s:", i+1, rule.Name)
+		log.Printf("%d. %s (priority: %d):", i+1, rule.Name, rule.Priority)
 		if len(rule.FromContains) > 0 {
 			log.Printf("    from_contains: %s", strings.Join(rule.FromContains, ", "))
 		}
@@ -162,42 +177,65 @@ func listRules(cfg *config.Config) error {
 		}
 		log.Printf("    move_to: %s", rule.MoveTo)
 		log.Printf("    mark_as_read: %t", rule.MarkAsRead)
+		log.Printf("    chain: %t", rule.Chain)
 		log.Printf("")
 	}
 
 	return nil
 }
 
-func addRule(cfg *config.Config, args []string) error {
-	if len(args) < 6 {
-		return fmt.Errorf("usage: mailsort rules add <name> <from_contains> <subject_any> <body_any> <move_to> <mark_as_read>")
+func addRule(cfg *config.Config, rulesDir string, args []string) error {
+	if len(args) < 7 {
+		return fmt.Errorf("usage: mailsort rules add <priority> <name> <from_contains> <subject_any> <body_any> <move_to> <mark_as_read> [chain]")
 	}
 
-	name := args[0]
-	fromContains := splitCsvFixed(args[1])
-	subjectAny := splitCsvFixed(args[2])
-	bodyAny := splitCsvFixed(args[3])
-	moveTo := args[4]
-	markAsRead, err := parseBool(args[5])
+	priority, err := strconv.Atoi(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid priority: %w", err)
+	}
+
+	name := args[1]
+	fromContains := splitCsvFixed(args[2])
+	subjectAny := splitCsvFixed(args[3])
+	bodyAny := splitCsvFixed(args[4])
+	moveTo := args[5]
+	markAsRead, err := parseBool(args[6])
 	if err != nil {
 		return fmt.Errorf("invalid mark_as_read value: %w", err)
 	}
 
+	chain := false
+	if len(args) > 7 {
+		chain, err = parseBool(args[7])
+		if err != nil {
+			return fmt.Errorf("invalid chain value: %w", err)
+		}
+	}
+
 	rule := config.Rule{
 		Name:         name,
+		Priority:     priority,
 		FromContains: fromContains,
 		SubjectAny:   subjectAny,
 		BodyAny:      bodyAny,
 		MoveTo:       moveTo,
 		MarkAsRead:   markAsRead,
+		Chain:        chain,
 	}
 
 	cfg.Rules = append(cfg.Rules, rule)
-	log.Printf("rule '%s' added", name)
-	return config.Save(".mailsort.yaml", cfg)
+	log.Printf("rule '%s' added with priority %d", name, priority)
+
+	// Save to a file in the rules directory
+	filename := filepath.Join(rulesDir, fmt.Sprintf("%d-%s.yaml", priority, name))
+	data, err := yaml.Marshal([]config.Rule{rule})
+	if err != nil {
+		return fmt.Errorf("marshal rule: %w", err)
+	}
+	return os.WriteFile(filename, data, 0644)
 }
 
-func removeRule(cfg *config.Config, args []string) error {
+func removeRule(cfg *config.Config, rulesDir string, args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: mailsort rules remove <name>")
 	}
@@ -217,22 +255,66 @@ func removeRule(cfg *config.Config, args []string) error {
 
 	cfg.Rules = append(cfg.Rules[:index], cfg.Rules[index+1:]...)
 	log.Printf("rule '%s' removed", name)
-	return config.Save(".mailsort.yaml", cfg)
+
+	// Remove the rule file from the rules directory
+	// Find and remove the file containing this rule
+	files, err := os.ReadDir(rulesDir)
+	if err != nil {
+		return fmt.Errorf("read rules dir: %w", err)
+	}
+
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		path := filepath.Join(rulesDir, file.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+
+		var rules []config.Rule
+		if err := yaml.Unmarshal(data, &rules); err != nil {
+			continue
+		}
+
+		for _, r := range rules {
+			if r.Name == name {
+				os.Remove(path)
+				return nil
+			}
+		}
+	}
+
+	return nil
 }
 
-func updateRule(cfg *config.Config, args []string) error {
-	if len(args) < 6 {
-		return fmt.Errorf("usage: mailsort rules update <name> <from_contains> <subject_any> <body_any> <move_to> <mark_as_read>")
+func updateRule(cfg *config.Config, rulesDir string, args []string) error {
+	if len(args) < 7 {
+		return fmt.Errorf("usage: mailsort rules update <name> <priority> <from_contains> <subject_any> <body_any> <move_to> <mark_as_read> [chain]")
 	}
 
 	name := args[0]
-	fromContains := splitCsvFixed(args[1])
-	subjectAny := splitCsvFixed(args[2])
-	bodyAny := splitCsvFixed(args[3])
-	moveTo := args[4]
-	markAsRead, err := parseBool(args[5])
+	priority, err := strconv.Atoi(args[1])
+	if err != nil {
+		return fmt.Errorf("invalid priority: %w", err)
+	}
+
+	fromContains := splitCsvFixed(args[2])
+	subjectAny := splitCsvFixed(args[3])
+	bodyAny := splitCsvFixed(args[4])
+	moveTo := args[5]
+	markAsRead, err := parseBool(args[6])
 	if err != nil {
 		return fmt.Errorf("invalid mark_as_read value: %w", err)
+	}
+
+	chain := false
+	if len(args) > 7 {
+		chain, err = parseBool(args[7])
+		if err != nil {
+			return fmt.Errorf("invalid chain value: %w", err)
+		}
 	}
 
 	index := -1
@@ -249,15 +331,24 @@ func updateRule(cfg *config.Config, args []string) error {
 
 	cfg.Rules[index] = config.Rule{
 		Name:         name,
+		Priority:     priority,
 		FromContains: fromContains,
 		SubjectAny:   subjectAny,
 		BodyAny:      bodyAny,
 		MoveTo:       moveTo,
 		MarkAsRead:   markAsRead,
+		Chain:        chain,
 	}
 
-	log.Printf("rule '%s' updated", name)
-	return config.Save(".mailsort.yaml", cfg)
+	log.Printf("rule '%s' updated with priority %d", name, priority)
+
+	// Update the rule file in the rules directory
+	filename := filepath.Join(rulesDir, fmt.Sprintf("%d-%s.yaml", priority, name))
+	data, err := yaml.Marshal([]config.Rule{cfg.Rules[index]})
+	if err != nil {
+		return fmt.Errorf("marshal rule: %w", err)
+	}
+	return os.WriteFile(filename, data, 0644)
 }
 
 func splitCsv(s string) []string {
@@ -300,7 +391,7 @@ func parseBool(s string) (bool, error) {
 	}
 }
 
-func Rules(cfg *config.Config, args []string) error {
+func Rules(cfg *config.Config, rulesDir string, args []string) error {
 	if len(args) == 0 {
 		return listRules(cfg)
 	}
@@ -310,11 +401,11 @@ func Rules(cfg *config.Config, args []string) error {
 	case "list":
 		return listRules(cfg)
 	case "add":
-		return addRule(cfg, args[1:])
+		return addRule(cfg, rulesDir, args[1:])
 	case "remove":
-		return removeRule(cfg, args[1:])
+		return removeRule(cfg, rulesDir, args[1:])
 	case "update":
-		return updateRule(cfg, args[1:])
+		return updateRule(cfg, rulesDir, args[1:])
 	default:
 		return fmt.Errorf("unknown rules subcommand: %s\nValid subcommands: list, add, remove, update", subcommand)
 	}

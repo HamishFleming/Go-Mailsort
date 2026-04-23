@@ -94,7 +94,7 @@ func TestNewTriage(t *testing.T) {
 
 			matched := 0
 			for _, m := range got {
-				if m.Rule != nil {
+				if len(m.Rules) > 0 {
 					matched++
 				}
 			}

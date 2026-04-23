@@ -12,7 +12,8 @@ func TestMatch(t *testing.T) {
 		name     string
 		rules    []config.Rule
 		email    *imapclient.Email
-		wantNil bool
+		wantNil  bool
+		wantRule string
 	}{
 		{
 			name: "matches from_contains",
@@ -20,7 +21,8 @@ func TestMatch(t *testing.T) {
 				{Name: "rule1", FromContains: []string{"sender.com"}, MoveTo: "folder1"},
 			},
 			email:    &imapclient.Email{From: "test@sender.com", Subject: "Subject"},
-			wantNil: false,
+			wantNil:  false,
+			wantRule: "rule1",
 		},
 		{
 			name: "matches subject_any",
@@ -28,7 +30,8 @@ func TestMatch(t *testing.T) {
 				{Name: "rule1", SubjectAny: []string{"Alert"}, MoveTo: "folder1"},
 			},
 			email:    &imapclient.Email{From: "test@example.com", Subject: "Security Alert"},
-			wantNil: false,
+			wantNil:  false,
+			wantRule: "rule1",
 		},
 		{
 			name: "no match - wrong sender",
@@ -36,7 +39,7 @@ func TestMatch(t *testing.T) {
 				{Name: "rule1", FromContains: []string{"other.com"}, MoveTo: "folder1"},
 			},
 			email:    &imapclient.Email{From: "test@example.com", Subject: "Subject"},
-			wantNil: true,
+			wantNil:  true,
 		},
 		{
 			name: "no match - wrong subject",
@@ -44,38 +47,41 @@ func TestMatch(t *testing.T) {
 				{Name: "rule1", SubjectAny: []string{"Alert"}, MoveTo: "folder1"},
 			},
 			email:    &imapclient.Email{From: "test@example.com", Subject: "Regular Email"},
-			wantNil: true,
+			wantNil:  true,
 		},
 		{
-			name: "empty rules returns nil",
+			name:    "empty rules returns nil",
 			rules:    []config.Rule{},
 			email:    &imapclient.Email{From: "test@example.com", Subject: "Subject"},
 			wantNil: true,
 		},
 		{
-			name: "first matching rule wins",
+			name: "first matching rule wins (no chain)",
 			rules: []config.Rule{
 				{Name: "rule1", FromContains: []string{"test.com"}, MoveTo: "folder1"},
 				{Name: "rule2", FromContains: []string{"test.com"}, MoveTo: "folder2"},
 			},
 			email:    &imapclient.Email{From: "test@test.com", Subject: "Subject"},
-			wantNil: false,
+			wantNil:  false,
+			wantRule: "rule1",
 		},
 		{
-			name: "matches multiple from_contains - first match",
+			name: "matches multiple from_contains",
 			rules: []config.Rule{
 				{Name: "rule1", FromContains: []string{"sender.com", "other.com"}, MoveTo: "folder1"},
 			},
 			email:    &imapclient.Email{From: "test@other.com", Subject: "Subject"},
-			wantNil: false,
+			wantNil:  false,
+			wantRule: "rule1",
 		},
 		{
-			name: "matches multiple subject_any - first match",
+			name: "matches multiple subject_any",
 			rules: []config.Rule{
 				{Name: "rule1", SubjectAny: []string{"Alert", "Notification"}, MoveTo: "folder1"},
 			},
 			email:    &imapclient.Email{From: "test@example.com", Subject: "Security Notification"},
-			wantNil: false,
+			wantNil:  false,
+			wantRule: "rule1",
 		},
 		{
 			name: "empty rule criteria matches everything",
@@ -83,7 +89,18 @@ func TestMatch(t *testing.T) {
 				{Name: "rule1", MoveTo: "folder1"},
 			},
 			email:    &imapclient.Email{From: "test@example.com", Subject: "Any Subject"},
-			wantNil: false,
+			wantNil:  false,
+			wantRule: "rule1",
+		},
+		{
+			name: "chain rule - multiple matches",
+			rules: []config.Rule{
+				{Name: "rule1", FromContains: []string{"test.com"}, MoveTo: "folder1", Chain: true},
+				{Name: "rule2", SubjectAny: []string{"Alert"}, MoveTo: "folder2", Chain: false},
+			},
+			email:    &imapclient.Email{From: "test@test.com", Subject: "Alert"},
+			wantNil:  false,
+			wantRule: "rule1",
 		},
 	}
 
@@ -93,12 +110,14 @@ func TestMatch(t *testing.T) {
 			got := m.Match(tt.email)
 
 			if tt.wantNil {
-				if got != nil {
-					t.Errorf("Match() = %v, want nil", got.Name)
+				if len(got) > 0 {
+					t.Errorf("Match() = %v rules, want nil", len(got))
 				}
 			} else {
-				if got == nil {
+				if len(got) == 0 {
 					t.Error("Match() = nil, want rule")
+				} else if tt.wantRule != "" && got[0].Name != tt.wantRule {
+					t.Errorf("Match()[0] = %s, want %s", got[0].Name, tt.wantRule)
 				}
 			}
 		})
@@ -115,7 +134,7 @@ func TestMatch_Integration(t *testing.T) {
 	tests := []struct {
 		name    string
 		email  *imapclient.Email
-		want   string
+		want    string
 	}{
 		{
 			name:   "newsletter from sender",
@@ -144,12 +163,36 @@ func TestMatch_Integration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := m.Match(tt.email)
-			if got == nil {
+			if len(got) == 0 {
 				t.Fatalf("Match() = nil, want %s", tt.want)
 			}
-			if got.Name != tt.want {
-				t.Errorf("Match() = %s, want %s", got.Name, tt.want)
+			if got[0].Name != tt.want {
+				t.Errorf("Match()[0] = %s, want %s", got[0].Name, tt.want)
 			}
 		})
+	}
+}
+
+func TestMatch_Chaining(t *testing.T) {
+	rules := []config.Rule{
+		{Name: "rule1", FromContains: []string{"test.com"}, MoveTo: "folder1", Chain: true},
+		{Name: "rule2", SubjectAny: []string{"Alert"}, MoveTo: "folder2", Chain: false},
+		{Name: "rule3", MoveTo: "folder3", Chain: false},
+	}
+
+	email := &imapclient.Email{From: "test@test.com", Subject: "Alert"}
+
+	m := NewMatcher(rules)
+	got := m.Match(email)
+
+	if len(got) != 2 {
+		t.Fatalf("Match() returned %d rules, want 2", len(got))
+	}
+
+	if got[0].Name != "rule1" {
+		t.Errorf("Match()[0] = %s, want rule1", got[0].Name)
+	}
+	if got[1].Name != "rule2" {
+		t.Errorf("Match()[1] = %s, want rule2", got[1].Name)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/HamishFleming/Go-Mailsort/internal/cli"
 	"github.com/HamishFleming/Go-Mailsort/internal/config"
@@ -31,11 +32,23 @@ func main() {
 	cli.DryRun = dryRun
 	log.SetOutput(os.Stderr)
 
-	cfg, err := config.Load(configFile)
+	cfg, err := config.LoadMainConfig(configFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
 		os.Exit(1)
 	}
+
+	rulesDir := cfg.RulesDir
+	if rulesDir == "" {
+		rulesDir = filepath.Join(filepath.Dir(configFile), "rules")
+	}
+
+	rules, err := config.LoadRulesFromDir(rulesDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load rules: %v\n", err)
+		os.Exit(1)
+	}
+	cfg.Rules = rules
 
 	cmd := flag.Arg(0)
 	var runErr error
@@ -47,7 +60,7 @@ func main() {
 	case "apply":
 		runErr = cli.Apply(cfg)
 	case "rules":
-		runErr = cli.Rules(cfg, flag.Args()[1:])
+		runErr = cli.Rules(cfg, rulesDir, flag.Args()[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
 		flag.Usage()
@@ -55,7 +68,7 @@ func main() {
 	}
 
 	if runErr != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", runErr)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
