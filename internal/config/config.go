@@ -27,6 +27,24 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+func Save(path string, cfg *Config) error {
+	log.Printf("[DEBUG] config.Save: writing %s", path)
+
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		log.Printf("[ERROR] config.Save: marshal: %v", err)
+		return fmt.Errorf("marshal: %w", err)
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		log.Printf("[ERROR] config.Save: write: %v", err)
+		return fmt.Errorf("write: %w", err)
+	}
+
+	log.Printf("[INFO] config saved: mailbox=%s", cfg.Mailbox)
+	return nil
+}
+
 type Config struct {
 	Mailbox string `yaml:"mailbox"`
 	Rules   []Rule  `yaml:"rules"`
