@@ -117,6 +117,7 @@ func LoadMainConfig(path string) (*Config, error) {
 
 type Rule struct {
 	Name           string   `yaml:"name"`
+	Enabled        *bool    `yaml:"enabled,omitempty"`
 	Priority       int      `yaml:"priority"`
 	FromContains   []string `yaml:"from_contains"`
 	SubjectAny     []string `yaml:"subject_any"`

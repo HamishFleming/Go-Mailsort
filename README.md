@@ -52,6 +52,7 @@ Create rule files in the `.mailsort/rules/` directory. Each `.yaml` file can con
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | string | Rule identifier (must be unique) |
+| `enabled` | bool | Enable/disable rule (default: true) |
 | `priority` | int | Execution order (lower = runs first) |
 | `from_contains` | []string | Match if sender contains any of these strings |
 | `subject_any` | []string | Match if subject contains any of these strings |

@@ -33,6 +33,11 @@ func (m *Matcher) Match(email *imapclient.Email) []*config.Rule {
 }
 
 func (m *Matcher) matchRule(rule *config.Rule, email *imapclient.Email) bool {
+	// Check if rule is enabled (default true if not specified)
+	if rule.Enabled != nil && !*rule.Enabled {
+		return false
+	}
+
 	if len(rule.FromContains) > 0 {
 		matched := false
 		for _, f := range rule.FromContains {

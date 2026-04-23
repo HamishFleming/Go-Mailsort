@@ -1,4 +1,5 @@
 - name: linkedin
+  enabled: true
   priority: 10
   from_contains:
     - linkedin.com

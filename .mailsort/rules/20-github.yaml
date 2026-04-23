@@ -1,4 +1,5 @@
 - name: github
+  enabled: true
   priority: 20
   from_contains:
     - github.com

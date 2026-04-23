@@ -1,4 +1,5 @@
 - name: large_attachments
+  enabled: true
   priority: 30
   from_contains: []
   subject_any: []
@@ -10,15 +11,17 @@
   chain: false
 
 - name: old_newsletters
+  enabled: true
   priority: 40
   from_contains:
     - newsletter
-  date_before: "2023-12-31"
+  date_before: "-7d"
   move_to: Old_Newsletters
   mark_as_read: true
   chain: false
 
 - name: recent_emails
+  enabled: false
   priority: 50
   from_contains: []
   date_after: "-7d"
@@ -27,6 +30,7 @@
   chain: false
 
 - name: old_emails
+  enabled: true
   priority: 60
   from_contains: []
   date_before: "-30d"
