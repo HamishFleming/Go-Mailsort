@@ -82,11 +82,9 @@ func Preview(cfg *config.Config) error {
 	for _, email := range emails {
 		matchedRules := matcher.Match(&email)
 		if len(matchedRules) > 0 {
-			ruleNames := make([]string, len(matchedRules))
-			for i, r := range matchedRules {
-				ruleNames[i] = r.Name
+			for _, rule := range matchedRules {
+				log.Printf("  UID=%d subject=%q -> %s (rule: %s)", email.Uid, email.Subject, rule.MoveTo, rule.Name)
 			}
-			log.Printf("  UID=%d matches=%v", email.Uid, ruleNames)
 		}
 	}
 
@@ -128,14 +126,8 @@ func Apply(cfg *config.Config) error {
 	for _, email := range emails {
 		matchedRules := matcher.Match(&email)
 		if len(matchedRules) > 0 {
-			ruleNames := make([]string, len(matchedRules))
-			for i, r := range matchedRules {
-				ruleNames[i] = r.Name
-			}
-			log.Printf("UID=%d matched rules: %v", email.Uid, ruleNames)
-
 			for _, rule := range matchedRules {
-				log.Printf("  applying rule '%s': move to %s", rule.Name, rule.MoveTo)
+				log.Printf("  UID=%d subject=%q -> %s (rule: %s)", email.Uid, email.Subject, rule.MoveTo, rule.Name)
 
 				if !DryRun {
 					if err := client.Move(email.Uid, rule.MoveTo); err != nil {

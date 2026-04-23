@@ -32,7 +32,7 @@ func NewTriage(emails []imapclient.Email, matcher *rules.Matcher) []Message {
 		for j, r := range matchedRules {
 			ruleNames[j] = r.Name
 		}
-		log.Printf("[DEBUG] triage.NewTriage: email[%d] UID=%d, rules=%v", i, email.Uid, strings.Join(ruleNames, ", "))
+		log.Printf("[DEBUG] triage.NewTriage: email[%d] UID=%d subject=%q, rules=%v", i, email.Uid, email.Subject, strings.Join(ruleNames, ", "))
 
 		triages = append(triages, Message{
 			Email: email,
