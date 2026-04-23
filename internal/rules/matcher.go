@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,13 +102,23 @@ func (m *Matcher) matchRule(rule *config.Rule, email *imapclient.Email) bool {
 }
 
 func parseDate(s string) (time.Time, error) {
-	// Try RFC3339 with time first
+	// Try relative date format (e.g., "-30d" for 30 days ago)
+	if strings.HasPrefix(s, "-") && strings.HasSuffix(s, "d") {
+		daysStr := strings.TrimSuffix(strings.TrimPrefix(s, "-"), "d")
+		if days, err := strconv.Atoi(daysStr); err == nil && days > 0 {
+			return time.Now().AddDate(0, 0, -days), nil
+		}
+	}
+
+	// Try RFC3339 with time
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return t, nil
 	}
+
 	// Try date-only format (add time 00:00:00)
 	if t, err := time.Parse("2006-01-02", s); err == nil {
 		return t, nil
 	}
+
 	return time.Time{}, fmt.Errorf("invalid date format: %s", s)
 }

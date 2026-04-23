@@ -17,3 +17,19 @@
   move_to: Old_Newsletters
   mark_as_read: true
   chain: false
+
+- name: recent_emails
+  priority: 50
+  from_contains: []
+  date_after: "-7d"
+  move_to: Recent
+  mark_as_read: false
+  chain: false
+
+- name: old_emails
+  priority: 60
+  from_contains: []
+  date_before: "-30d"
+  move_to: Old_Emails
+  mark_as_read: true
+  chain: false

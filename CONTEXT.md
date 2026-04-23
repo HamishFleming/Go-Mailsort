@@ -18,14 +18,16 @@ CLI email triaging tool that sorts mail between IMAP folders based on configurab
 
 ## Recent Changes
 
+- Added email filtering criteria: date ranges, attachments, size limits
+- Added Date, Size, HasAttachments fields to Email struct
+- Added date_after, date_before, has_attachments, min_size, max_size to Rule
+- Fixed date parsing to handle both RFC3339 and date-only formats (2006-01-02)
+- Added parseDate() function with support for multiple date formats
+- Added relative date support (e.g., "-30d" for older than 30 days)
+- Updated matcher to check new filter criteria
+- Created example rule file with new filtering criteria (30-filters-example.yaml)
+- All core commands working: scan, preview, apply, rules
 - Implemented multiple rule files in directory with priority-based ordering
 - Added rule chaining support (chain field) for sequential rule application
-- Updated config to load rules from `.mailsort/rules/` directory
-- Added `priority` field to rules for execution order
-- Updated `Match()` to return `[]*config.Rule` for chaining support
-- Updated triage package to handle multiple matched rules
-- All core commands working: scan, preview, apply, rules
 - Built out `mailsort rules` command with list, add, remove, update subcommands
-- Added `config.LoadRulesFromDir()` for directory-based rule loading
-- Added `config.LoadMainConfig()` for main config file
-- Updated README with new configuration format and chaining documentation
+- Extended preview command to show email subject and destination folder
