@@ -181,6 +181,72 @@ func Apply(cfg *config.Config) error {
 	return nil
 }
 
+func Init(cfg *config.Config) error {
+	provider, err := yahoo.NewProvider()
+	if err != nil {
+		return err
+	}
+
+	imapCfg := &imapclient.Config{Mailbox: cfg.Mailbox}
+	client, err := provider.Connect(imapCfg)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	mailboxes := requiredMailboxes(cfg)
+	if len(mailboxes) == 0 {
+		log.Printf("no required mailboxes configured")
+		return nil
+	}
+
+	log.Printf("checking %d required IMAP mailboxes", len(mailboxes))
+	created, err := client.EnsureMailboxes(mailboxes)
+	if err != nil {
+		return err
+	}
+
+	if len(created) == 0 {
+		log.Printf("all required IMAP mailboxes already exist")
+		return nil
+	}
+
+	log.Printf("created %d IMAP mailboxes", len(created))
+	return nil
+}
+
+func requiredMailboxes(cfg *config.Config) []string {
+	seen := make(map[string]struct{})
+	var mailboxes []string
+
+	add := func(mailbox string) {
+		mailbox = strings.TrimSpace(mailbox)
+		if mailbox == "" {
+			return
+		}
+		if _, ok := seen[mailbox]; ok {
+			return
+		}
+		seen[mailbox] = struct{}{}
+		mailboxes = append(mailboxes, mailbox)
+	}
+
+	mailbox := cfg.Mailbox
+	if mailbox == "" {
+		mailbox = "INBOX"
+	}
+	add(mailbox)
+
+	for _, rule := range cfg.Rules {
+		if rule.Enabled != nil && !*rule.Enabled {
+			continue
+		}
+		add(rule.MoveTo)
+	}
+
+	return mailboxes
+}
+
 func listRules(cfg *config.Config) error {
 	if len(cfg.Rules) == 0 {
 		log.Printf("no rules configured")

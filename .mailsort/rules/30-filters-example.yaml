@@ -1,5 +1,5 @@
 - name: large_attachments
-  enabled: true
+  enabled: false
   priority: 30
   from_contains: []
   subject_any: []
@@ -13,7 +13,7 @@
 - name: old_newsletters
   enabled: true
   priority: 40
-  from_contains:
+  subject_any:
     - newsletter
   date_before: "-7d"
   move_to: Old_Newsletters
@@ -30,7 +30,7 @@
   chain: false
 
 - name: old_emails
-  enabled: true
+  enabled: false
   priority: 60
   from_contains: []
   date_before: "-30d"
