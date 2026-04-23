@@ -146,11 +146,13 @@ Checks the configured source mailbox and destination folders from enabled rules,
 ### List unread emails
 ```bash
 mailsort scan
+mailsort scan --summary-md
 ```
 
 ### Preview rule matches
 ```bash
 mailsort preview
+mailsort preview --summary-md
 ```
 
 Shows each planned action, including deletes, and prints summary counts by action and rule.
@@ -158,6 +160,7 @@ Shows each planned action, including deletes, and prints summary counts by actio
 ### Apply rules (dry-run mode)
 ```bash
 mailsort apply --dry-run
+mailsort apply --dry-run --summary-md
 # Also supported:
 mailsort --dry-run apply
 ```
@@ -165,9 +168,16 @@ mailsort --dry-run apply
 ### Apply rules (actually move emails)
 ```bash
 mailsort apply
+mailsort apply --summary-md --summary-path ./reports/latest.md
 ```
 
 Apply groups compatible IMAP operations into batches by source mailbox and destination/action, so matching emails are copied, flagged, marked read, moved, or deleted with fewer server round trips.
+
+### Markdown summary reports
+
+Add `--summary-md` to `scan`, `preview`, or `apply` to write a post-run Markdown report. By default reports are written to `./reports/mailsort-YYYY-MM-DD_HH-mm-ss.md`; use `--summary-path` for a stable path such as `./reports/latest.md`.
+
+Reports include run metadata, counts, matched rules, planned or applied actions, and per-email details. The renderer lists important mail first using deterministic heuristics: urgent subject keywords, high-priority or positive-score rules, flagged mail, attachments, and unmatched human-looking senders that do not look like bulk or automated mail. `preview` and `apply --dry-run` reports state that no mail was moved or modified.
 
 ### Manage rules
 

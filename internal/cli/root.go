@@ -13,13 +13,16 @@ import (
 	"github.com/HamishFleming/Go-Mailsort/internal/config"
 	"github.com/HamishFleming/Go-Mailsort/internal/imapclient"
 	"github.com/HamishFleming/Go-Mailsort/internal/imapclient/yahoo"
+	"github.com/HamishFleming/Go-Mailsort/internal/report"
 	"github.com/HamishFleming/Go-Mailsort/internal/rules"
 	"gopkg.in/yaml.v3"
 )
 
 var (
-	Verbose bool
-	DryRun  bool
+	Verbose         bool
+	DryRun          bool
+	SummaryMarkdown bool
+	SummaryPath     string
 )
 
 func Scan(cfg *config.Config) error {
@@ -49,6 +52,21 @@ func Scan(cfg *config.Config) error {
 
 	for _, email := range emails {
 		log.Printf("  mailbox=%s UID=%d from=%q subject=%q", email.Mailbox, email.Uid, email.From, email.Subject)
+	}
+
+	if SummaryMarkdown {
+		entries := make([]report.EmailResult, 0, len(emails))
+		for _, email := range emails {
+			entries = append(entries, report.EmailResult{Email: email})
+		}
+		if err := writeSummary(report.Result{
+			Command:   "scan",
+			Mailbox:   mailbox,
+			Timestamp: time.Now(),
+			Emails:    entries,
+		}); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -81,6 +99,7 @@ func Preview(cfg *config.Config) error {
 	totalActions := 0
 	ruleMatchCount := make(map[string]int)
 	actionMatchCount := make(map[string]int)
+	reportEmails := make([]report.EmailResult, 0, len(emails))
 	var matchedEmails []struct {
 		uid     uint32
 		subject string
@@ -90,6 +109,7 @@ func Preview(cfg *config.Config) error {
 	for _, email := range emails {
 		matchedRules := matcher.Match(&email)
 		score, plannedActions := planEmailActions(&email, matchedRules, cfg)
+		reportEmails = append(reportEmails, reportEmailResult(email, score, matchedRules, plannedActions, false))
 		if len(matchedRules) > 0 || len(plannedActions) > 0 {
 			totalMatched++
 			ruleNames := make([]string, 0, len(matchedRules))
@@ -124,6 +144,18 @@ func Preview(cfg *config.Config) error {
 		count := ruleMatchCount[rule.Name]
 		if count > 0 {
 			log.Printf("  %s: %d emails", rule.Name, count)
+		}
+	}
+
+	if SummaryMarkdown {
+		if err := writeSummary(report.Result{
+			Command:   "preview",
+			Mailbox:   strings.Join(sourceMailboxes(cfg), ", "),
+			Timestamp: time.Now(),
+			DryRun:    true,
+			Emails:    reportEmails,
+		}); err != nil {
+			return err
 		}
 	}
 
@@ -175,9 +207,11 @@ func Apply(cfg *config.Config) error {
 
 	moved := 0
 	batches := newActionBatches()
+	reportEmails := make([]report.EmailResult, 0, len(emails))
 	for _, email := range emails {
 		matchedRules := matcher.Match(&email)
 		score, plannedActions := planEmailActions(&email, matchedRules, cfg)
+		reportEmails = append(reportEmails, reportEmailResult(email, score, matchedRules, plannedActions, !DryRun))
 		if len(matchedRules) > 0 || len(plannedActions) > 0 {
 			for _, action := range plannedActions {
 				log.Printf("  mailbox=%s UID=%d score=%d subject=%q -> %s", email.Mailbox, email.Uid, score, email.Subject, action.description)
@@ -200,7 +234,71 @@ func Apply(cfg *config.Config) error {
 	}
 
 	log.Printf("processed %d emails with matching rules", moved)
+
+	if SummaryMarkdown {
+		if err := writeSummary(report.Result{
+			Command:   "apply",
+			Mailbox:   strings.Join(sourceMailboxes(cfg), ", "),
+			Timestamp: time.Now(),
+			DryRun:    DryRun,
+			Emails:    reportEmails,
+		}); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func writeSummary(result report.Result) error {
+	path, err := report.WriteMarkdown(result, SummaryPath)
+	if err != nil {
+		return err
+	}
+	log.Printf("wrote Markdown summary report: %s", path)
+	return nil
+}
+
+func reportEmailResult(email imapclient.Email, score int, matchedRules []*config.Rule, actions []plannedAction, applied bool) report.EmailResult {
+	return report.EmailResult{
+		Email:   email,
+		Score:   score,
+		Rules:   reportRuleInfos(matchedRules),
+		Actions: reportActionInfos(actions, applied),
+	}
+}
+
+func reportRuleInfos(rules []*config.Rule) []report.RuleInfo {
+	infos := make([]report.RuleInfo, 0, len(rules))
+	for _, rule := range rules {
+		infos = append(infos, report.RuleInfo{
+			Name:          rule.Name,
+			Priority:      rule.Priority,
+			MoveTo:        rule.MoveTo,
+			CopyTo:        rule.CopyTo,
+			Delete:        rule.Delete,
+			MarkAsRead:    rule.MarkAsRead,
+			FlagImportant: rule.FlagImportant,
+			Chain:         rule.Chain,
+		})
+	}
+	return infos
+}
+
+func reportActionInfos(actions []plannedAction, applied bool) []report.ActionInfo {
+	infos := make([]report.ActionInfo, 0, len(actions))
+	for _, action := range actions {
+		ruleName := ""
+		if action.rule != nil {
+			ruleName = action.rule.Name
+		}
+		infos = append(infos, report.ActionInfo{
+			Summary: action.summary,
+			Rule:    ruleName,
+			Applied: applied,
+		})
+	}
+	return infos
 }
 
 type plannedAction struct {
