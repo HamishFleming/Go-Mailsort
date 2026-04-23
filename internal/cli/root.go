@@ -5,8 +5,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/HamishFleming/Go-Mailsort/internal/config"
 	"github.com/HamishFleming/Go-Mailsort/internal/imapclient"
@@ -46,7 +48,7 @@ func Scan(cfg *config.Config) error {
 	log.Printf("found %d unread emails", len(emails))
 
 	for _, email := range emails {
-		log.Printf("  UID=%d from=%q subject=%q", email.Uid, email.From, email.Subject)
+		log.Printf("  mailbox=%s UID=%d from=%q subject=%q", email.Mailbox, email.Uid, email.From, email.Subject)
 	}
 
 	return nil
@@ -65,23 +67,20 @@ func Preview(cfg *config.Config) error {
 	}
 	defer client.Close()
 
-	mailbox := cfg.Mailbox
-	if mailbox == "" {
-		mailbox = "INBOX"
-	}
-
-	emails, err := client.FetchUnread(mailbox)
+	emails, err := fetchRuleMailboxes(client, cfg)
 	if err != nil {
 		return err
 	}
 
-	matcher := rules.NewMatcher(cfg.Rules)
+	matcher := rules.NewMatcherWithDefaultMailbox(cfg.Rules, defaultMailbox(cfg))
 
 	log.Printf("matching %d emails against %d rules", len(emails), len(cfg.Rules))
 
 	// Track statistics
 	totalMatched := 0
+	totalActions := 0
 	ruleMatchCount := make(map[string]int)
+	actionMatchCount := make(map[string]int)
 	var matchedEmails []struct {
 		uid     uint32
 		subject string
@@ -90,13 +89,18 @@ func Preview(cfg *config.Config) error {
 
 	for _, email := range emails {
 		matchedRules := matcher.Match(&email)
-		if len(matchedRules) > 0 {
+		score, plannedActions := planEmailActions(&email, matchedRules, cfg)
+		if len(matchedRules) > 0 || len(plannedActions) > 0 {
 			totalMatched++
-			ruleNames := make([]string, len(matchedRules))
-			for i, rule := range matchedRules {
-				log.Printf("  UID=%d subject=%q -> %s (rule: %s)", email.Uid, email.Subject, rule.MoveTo, rule.Name)
-				ruleNames[i] = rule.Name
+			ruleNames := make([]string, 0, len(matchedRules))
+			for _, rule := range matchedRules {
+				ruleNames = append(ruleNames, rule.Name)
 				ruleMatchCount[rule.Name]++
+			}
+			for _, action := range plannedActions {
+				log.Printf("  mailbox=%s UID=%d score=%d subject=%q -> %s", email.Mailbox, email.Uid, score, email.Subject, action.description)
+				actionMatchCount[action.summary]++
+				totalActions++
 			}
 			matchedEmails = append(matchedEmails, struct {
 				uid     uint32
@@ -110,6 +114,10 @@ func Preview(cfg *config.Config) error {
 	log.Printf("")
 	log.Printf("=== Summary ===")
 	log.Printf("Total emails matched: %d/%d", totalMatched, len(emails))
+	log.Printf("Total planned actions: %d", totalActions)
+	log.Printf("")
+	log.Printf("Actions:")
+	logActionSummary(actionMatchCount)
 	log.Printf("")
 	log.Printf("Matches per rule:")
 	for _, rule := range cfg.Rules {
@@ -120,6 +128,23 @@ func Preview(cfg *config.Config) error {
 	}
 
 	return nil
+}
+
+func logActionSummary(actionMatchCount map[string]int) {
+	if len(actionMatchCount) == 0 {
+		log.Printf("  none")
+		return
+	}
+
+	actions := make([]string, 0, len(actionMatchCount))
+	for action := range actionMatchCount {
+		actions = append(actions, action)
+	}
+	sort.Strings(actions)
+
+	for _, action := range actions {
+		log.Printf("  %s: %d emails", action, actionMatchCount[action])
+	}
 }
 
 func Apply(cfg *config.Config) error {
@@ -139,37 +164,28 @@ func Apply(cfg *config.Config) error {
 	}
 	defer client.Close()
 
-	mailbox := cfg.Mailbox
-	if mailbox == "" {
-		mailbox = "INBOX"
-	}
-
-	emails, err := client.FetchUnread(mailbox)
+	emails, err := fetchRuleMailboxes(client, cfg)
 	if err != nil {
 		return err
 	}
 
-	matcher := rules.NewMatcher(cfg.Rules)
+	matcher := rules.NewMatcherWithDefaultMailbox(cfg.Rules, defaultMailbox(cfg))
 
 	log.Printf("applying rules to %d emails", len(emails))
 
 	moved := 0
+	batches := newActionBatches()
 	for _, email := range emails {
 		matchedRules := matcher.Match(&email)
-		if len(matchedRules) > 0 {
-			for _, rule := range matchedRules {
-				log.Printf("  UID=%d subject=%q -> %s (rule: %s)", email.Uid, email.Subject, rule.MoveTo, rule.Name)
+		score, plannedActions := planEmailActions(&email, matchedRules, cfg)
+		if len(matchedRules) > 0 || len(plannedActions) > 0 {
+			for _, action := range plannedActions {
+				log.Printf("  mailbox=%s UID=%d score=%d subject=%q -> %s", email.Mailbox, email.Uid, score, email.Subject, action.description)
 
 				if !DryRun {
-					if err := client.Move(email.Uid, rule.MoveTo); err != nil {
-						log.Printf("ERROR: move failed: %v", err)
-						continue
-					}
-
-					if rule.MarkAsRead {
-						if err := client.MarkAsRead(email.Uid); err != nil {
-							log.Printf("WARN: mark as read failed: %v", err)
-						}
+					stop := batches.add(&email, action)
+					if stop {
+						break
 					}
 				}
 			}
@@ -177,8 +193,320 @@ func Apply(cfg *config.Config) error {
 		}
 	}
 
+	if !DryRun {
+		if err := batches.execute(client); err != nil {
+			return err
+		}
+	}
+
 	log.Printf("processed %d emails with matching rules", moved)
 	return nil
+}
+
+type plannedAction struct {
+	description string
+	summary     string
+	rule        *config.Rule
+	autoMoveTo  string
+}
+
+func planEmailActions(email *imapclient.Email, matchedRules []*config.Rule, cfg *config.Config) (int, []plannedAction) {
+	score := 0
+	actions := make([]plannedAction, 0, len(matchedRules)+1)
+	hasMoveOrDelete := false
+
+	for _, rule := range matchedRules {
+		score += rule.Score
+
+		summary := describeRuleAction(rule)
+		if summary == "no action" {
+			continue
+		}
+
+		if rule.Delete || strings.TrimSpace(rule.MoveTo) != "" {
+			hasMoveOrDelete = true
+		}
+
+		actions = append(actions, plannedAction{
+			description: fmt.Sprintf("%s (rule: %s)", summary, rule.Name),
+			summary:     summary,
+			rule:        rule,
+		})
+	}
+
+	if shouldAutoArchive(email, score, hasMoveOrDelete, cfg) {
+		moveTo := autoArchiveMoveTo(cfg)
+		summary := "auto archive to " + moveTo
+		actions = append(actions, plannedAction{
+			description: fmt.Sprintf("%s (score %d <= %d)", summary, score, cfg.AutoArchive.Threshold),
+			summary:     summary,
+			autoMoveTo:  moveTo,
+		})
+	}
+
+	return score, actions
+}
+
+type actionBatches struct {
+	copies  map[string][]uint32
+	flags   map[string][]uint32
+	reads   map[string][]uint32
+	moves   map[string][]uint32
+	deletes map[string][]uint32
+}
+
+func newActionBatches() *actionBatches {
+	return &actionBatches{
+		copies:  make(map[string][]uint32),
+		flags:   make(map[string][]uint32),
+		reads:   make(map[string][]uint32),
+		moves:   make(map[string][]uint32),
+		deletes: make(map[string][]uint32),
+	}
+}
+
+func (b *actionBatches) add(email *imapclient.Email, action plannedAction) bool {
+	if action.autoMoveTo != "" {
+		b.addMove(email.Mailbox, action.autoMoveTo, email.Uid)
+		return true
+	}
+	if action.rule == nil {
+		return false
+	}
+
+	rule := action.rule
+	if rule.Delete {
+		b.addDelete(email.Mailbox, email.Uid)
+		return true
+	}
+
+	if strings.TrimSpace(rule.CopyTo) != "" {
+		b.addCopy(email.Mailbox, rule.CopyTo, email.Uid)
+	}
+
+	if rule.FlagImportant {
+		b.addFlag(email.Mailbox, email.Uid)
+	}
+
+	if rule.MarkAsRead {
+		b.addRead(email.Mailbox, email.Uid)
+	}
+
+	if strings.TrimSpace(rule.MoveTo) != "" {
+		b.addMove(email.Mailbox, rule.MoveTo, email.Uid)
+		return true
+	}
+
+	return false
+}
+
+func (b *actionBatches) addCopy(mailbox, folder string, uid uint32) {
+	key := batchKey(mailbox, folder)
+	b.copies[key] = append(b.copies[key], uid)
+}
+
+func (b *actionBatches) addFlag(mailbox string, uid uint32) {
+	b.flags[mailbox] = append(b.flags[mailbox], uid)
+}
+
+func (b *actionBatches) addRead(mailbox string, uid uint32) {
+	b.reads[mailbox] = append(b.reads[mailbox], uid)
+}
+
+func (b *actionBatches) addMove(mailbox, folder string, uid uint32) {
+	key := batchKey(mailbox, folder)
+	b.moves[key] = append(b.moves[key], uid)
+}
+
+func (b *actionBatches) addDelete(mailbox string, uid uint32) {
+	b.deletes[mailbox] = append(b.deletes[mailbox], uid)
+}
+
+func (b *actionBatches) execute(client *imapclient.Client) error {
+	for key, uids := range b.copies {
+		mailbox, folder := splitBatchKey(key)
+		log.Printf("batch copy %d messages from %s to %s", len(uids), mailbox, folder)
+		if err := client.CopyMany(mailbox, uids, folder); err != nil {
+			return fmt.Errorf("copy %s -> %s: %w", mailbox, folder, err)
+		}
+	}
+	for mailbox, uids := range b.flags {
+		log.Printf("batch flag important %d messages in %s", len(uids), mailbox)
+		if err := client.FlagImportantMany(mailbox, uids); err != nil {
+			return fmt.Errorf("flag important %s: %w", mailbox, err)
+		}
+	}
+	for mailbox, uids := range b.reads {
+		log.Printf("batch mark read %d messages in %s", len(uids), mailbox)
+		if err := client.MarkAsReadMany(mailbox, uids); err != nil {
+			return fmt.Errorf("mark read %s: %w", mailbox, err)
+		}
+	}
+	for key, uids := range b.moves {
+		mailbox, folder := splitBatchKey(key)
+		log.Printf("batch move %d messages from %s to %s", len(uids), mailbox, folder)
+		if err := client.MoveMany(mailbox, uids, folder); err != nil {
+			return fmt.Errorf("move %s -> %s: %w", mailbox, folder, err)
+		}
+	}
+	for mailbox, uids := range b.deletes {
+		log.Printf("batch delete %d messages from %s", len(uids), mailbox)
+		if err := client.DeleteMany(mailbox, uids); err != nil {
+			return fmt.Errorf("delete %s: %w", mailbox, err)
+		}
+	}
+
+	return nil
+}
+
+func batchKey(mailbox, folder string) string {
+	return mailbox + "\x00" + folder
+}
+
+func splitBatchKey(key string) (string, string) {
+	parts := strings.SplitN(key, "\x00", 2)
+	if len(parts) != 2 {
+		return key, ""
+	}
+	return parts[0], parts[1]
+}
+
+func shouldAutoArchive(email *imapclient.Email, score int, hasMoveOrDelete bool, cfg *config.Config) bool {
+	if !cfg.AutoArchive.Enabled || hasMoveOrDelete {
+		return false
+	}
+	if email.Flagged {
+		return false
+	}
+	if time.Since(email.Date) < 24*time.Hour {
+		return false
+	}
+	if cfg.AutoArchive.DateBefore != "" {
+		before, err := parseAutoArchiveDate(cfg.AutoArchive.DateBefore)
+		if err != nil {
+			log.Printf("[WARN] invalid auto_archive.date_before format: %s", cfg.AutoArchive.DateBefore)
+			return false
+		}
+		if email.Date.After(before) {
+			return false
+		}
+	}
+
+	source := strings.TrimSpace(cfg.AutoArchive.Folder)
+	if source == "" {
+		source = defaultMailbox(cfg)
+	}
+
+	emailMailbox := strings.TrimSpace(email.Mailbox)
+	if emailMailbox == "" {
+		emailMailbox = "INBOX"
+	}
+
+	return strings.EqualFold(source, emailMailbox) && score <= cfg.AutoArchive.Threshold
+}
+
+func parseAutoArchiveDate(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "-") && strings.HasSuffix(s, "d") {
+		daysStr := strings.TrimSuffix(strings.TrimPrefix(s, "-"), "d")
+		days, err := strconv.Atoi(daysStr)
+		if err != nil || days <= 0 {
+			return time.Time{}, fmt.Errorf("invalid relative date: %s", s)
+		}
+		return time.Now().AddDate(0, 0, -days), nil
+	}
+
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t, nil
+	}
+
+	return time.Time{}, fmt.Errorf("invalid date: %s", s)
+}
+
+func autoArchiveMoveTo(cfg *config.Config) string {
+	if moveTo := strings.TrimSpace(cfg.AutoArchive.MoveTo); moveTo != "" {
+		return moveTo
+	}
+	return "Archive"
+}
+
+func fetchRuleMailboxes(client *imapclient.Client, cfg *config.Config) ([]imapclient.Email, error) {
+	var emails []imapclient.Email
+
+	for _, mailbox := range sourceMailboxes(cfg) {
+		fetched, err := client.Fetch(mailbox)
+		if err != nil {
+			return nil, err
+		}
+		emails = append(emails, fetched...)
+	}
+
+	return emails, nil
+}
+
+func sourceMailboxes(cfg *config.Config) []string {
+	seen := make(map[string]struct{})
+	var mailboxes []string
+
+	add := func(mailbox string) {
+		mailbox = strings.TrimSpace(mailbox)
+		if mailbox == "" {
+			mailbox = "INBOX"
+		}
+		key := strings.ToLower(mailbox)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		mailboxes = append(mailboxes, mailbox)
+	}
+
+	add(defaultMailbox(cfg))
+	for _, rule := range cfg.Rules {
+		if rule.Enabled != nil && !*rule.Enabled {
+			continue
+		}
+		if rule.Folder != "" {
+			add(rule.Folder)
+		}
+	}
+
+	return mailboxes
+}
+
+func defaultMailbox(cfg *config.Config) string {
+	mailbox := strings.TrimSpace(cfg.Mailbox)
+	if mailbox == "" {
+		return "INBOX"
+	}
+	return mailbox
+}
+
+func describeRuleAction(rule *config.Rule) string {
+	if rule.Delete {
+		return "delete"
+	}
+
+	var actions []string
+	if strings.TrimSpace(rule.CopyTo) != "" {
+		actions = append(actions, "copy to "+rule.CopyTo)
+	}
+	if rule.FlagImportant {
+		actions = append(actions, "flag important")
+	}
+	if strings.TrimSpace(rule.MoveTo) != "" {
+		actions = append(actions, "move to "+rule.MoveTo)
+	}
+	if rule.MarkAsRead {
+		actions = append(actions, "mark as read")
+	}
+	if len(actions) == 0 {
+		return "no action"
+	}
+	return strings.Join(actions, ", ")
 }
 
 func Init(cfg *config.Config) error {
@@ -236,12 +564,18 @@ func requiredMailboxes(cfg *config.Config) []string {
 		mailbox = "INBOX"
 	}
 	add(mailbox)
+	if cfg.AutoArchive.Enabled {
+		add(cfg.AutoArchive.Folder)
+		add(autoArchiveMoveTo(cfg))
+	}
 
 	for _, rule := range cfg.Rules {
 		if rule.Enabled != nil && !*rule.Enabled {
 			continue
 		}
+		add(rule.Folder)
 		add(rule.MoveTo)
+		add(rule.CopyTo)
 	}
 
 	return mailboxes
@@ -268,7 +602,27 @@ func listRules(cfg *config.Config) error {
 		if len(rule.BodyAny) > 0 {
 			log.Printf("    body_any: %s", strings.Join(rule.BodyAny, ", "))
 		}
+		if rule.Folder != "" {
+			log.Printf("    folder: %s", rule.Folder)
+		}
+		if rule.Score != 0 {
+			log.Printf("    score: %d", rule.Score)
+		}
+		if rule.Unread != nil {
+			log.Printf("    unread: %t", *rule.Unread)
+		}
+		if rule.OlderThan != nil {
+			log.Printf("    older_than: %s", *rule.OlderThan)
+		}
+		if rule.NewerThan != nil {
+			log.Printf("    newer_than: %s", *rule.NewerThan)
+		}
 		log.Printf("    move_to: %s", rule.MoveTo)
+		if rule.CopyTo != "" {
+			log.Printf("    copy_to: %s", rule.CopyTo)
+		}
+		log.Printf("    delete: %t", rule.Delete)
+		log.Printf("    flag_important: %t", rule.FlagImportant)
 		log.Printf("    mark_as_read: %t", rule.MarkAsRead)
 		log.Printf("    chain: %t", rule.Chain)
 		log.Printf("")

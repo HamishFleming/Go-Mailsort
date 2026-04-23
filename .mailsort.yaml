@@ -1,2 +1,7 @@
 mailbox: INBOX
 rules_dir: .mailsort/rules
+auto_archive:
+  enabled: true
+  threshold: 0
+  move_to: Archive
+  date_before: "-7d"

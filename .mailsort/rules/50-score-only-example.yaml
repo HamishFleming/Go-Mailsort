@@ -1,0 +1,9 @@
+- name: score_only_example
+  enabled: false
+  priority: 50
+  folder: INBOX
+  from_contains: []
+  subject_any: []
+  body_any: []
+  score: 1
+  chain: true

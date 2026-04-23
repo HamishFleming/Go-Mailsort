@@ -15,9 +15,29 @@ Create a `.mailsort.yaml` file in your working directory:
 ```yaml
 mailbox: INBOX
 rules_dir: .mailsort/rules
+auto_archive:
+  enabled: true
+  threshold: 0
+  move_to: Archive
+  date_before: "-7d"
 ```
 
 Create rule files in the `.mailsort/rules/` directory. Each `.yaml` file can contain one or more rules:
+
+**`.mailsort/rules/05-important-to-action.yaml`:**
+```yaml
+- name: important_to_action
+  priority: 5
+  folder: INBOX
+  subject_any:
+    - urgent
+    - action required
+    - please review
+  score: 10
+  copy_to: To Action
+  flag_important: true
+  chain: true
+```
 
 **`.mailsort/rules/10-linkedin.yaml`:**
 ```yaml
@@ -37,14 +57,40 @@ Create rule files in the `.mailsort/rules/` directory. Each `.yaml` file can con
 ```yaml
 - name: github
   priority: 20
+  folder: INBOX
   from_contains:
     - github.com
   subject_any:
     - GitHub
   body_any: []
+  unread: true
   move_to: GitHub
   mark_as_read: true
   chain: false
+```
+
+**Delete old read mail from a folder:**
+```yaml
+- name: purge-old-promotions
+  priority: 30
+  folder: Promotions
+  unread: false
+  older_than: 30d
+  delete: true
+  chain: false
+```
+
+**Score-only example rule:**
+```yaml
+- name: score_only_example
+  enabled: false
+  priority: 50
+  folder: INBOX
+  from_contains: []
+  subject_any: []
+  body_any: []
+  score: 1
+  chain: true
 ```
 
 ### Rule Fields
@@ -54,17 +100,39 @@ Create rule files in the `.mailsort/rules/` directory. Each `.yaml` file can con
 | `name` | string | Rule identifier (must be unique) |
 | `enabled` | bool | Enable/disable rule (default: true) |
 | `priority` | int | Execution order (lower = runs first) |
+| `score` | int | Score contribution when the rule matches |
+| `folder` | string | Source folder/mailbox to match (defaults to the configured mailbox when omitted) |
 | `from_contains` | []string | Match if sender contains any of these strings |
 | `subject_any` | []string | Match if subject contains any of these strings |
 | `body_any` | []string | Match if body contains any of these strings |
 | `date_after` | string | Match if email date is after this (RFC3339: "2024-01-15" or relative: "-7d") |
 | `date_before` | string | Match if email date is before this (RFC3339: "2024-12-31" or relative: "-30d") |
+| `older_than` | string | Match if email age is at least this duration (`30d`, `12h`, `90m`) |
+| `newer_than` | string | Match if email age is at most this duration (`7d`, `24h`, `30m`) |
+| `unread` | bool | Match unread (`true`) or read (`false`) emails |
 | `has_attachments` | bool | Match if email has attachments (true/false) |
 | `min_size` | uint32 | Match if email size is at least this many bytes |
 | `max_size` | uint32 | Match if email size is at most this many bytes |
 | `move_to` | string | Destination folder for matching emails |
-| `mark_as_read` | bool | Mark email as read after moving |
+| `copy_to` | string | Folder to copy matching emails to while leaving the source message in place |
+| `delete` | bool | Delete matching emails instead of moving them (takes precedence over `move_to`) |
+| `flag_important` | bool | Add the IMAP `\Flagged` flag to matching emails |
+| `mark_as_read` | bool | Mark email as read before moving |
 | `chain` | bool | If true, continue matching with next rules after this one |
+
+### Auto Archive
+
+The optional `auto_archive` config moves low-score mail out of the source folder, usually `INBOX`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enabled` | bool | Enable score-based auto-archive |
+| `threshold` | int | Archive when the email score is less than or equal to this value |
+| `move_to` | string | Archive destination folder (defaults to `Archive`) |
+| `folder` | string | Source folder to archive from (defaults to `mailbox`) |
+| `date_before` | string | Only auto-archive messages before this date, including relative values like `-7d` |
+
+Auto-archive skips messages received in the last 24 hours and messages that are already flagged important.
 
 ## Usage
 
@@ -85,15 +153,21 @@ mailsort scan
 mailsort preview
 ```
 
+Shows each planned action, including deletes, and prints summary counts by action and rule.
+
 ### Apply rules (dry-run mode)
 ```bash
 mailsort apply --dry-run
+# Also supported:
+mailsort --dry-run apply
 ```
 
 ### Apply rules (actually move emails)
 ```bash
 mailsort apply
 ```
+
+Apply groups compatible IMAP operations into batches by source mailbox and destination/action, so matching emails are copied, flagged, marked read, moved, or deleted with fewer server round trips.
 
 ### Manage rules
 
@@ -153,14 +227,17 @@ See `docs/imap-debug.md` for a full command reference and raw IMAP examples.
 
 2. **Rule Prioritization**: Rules are sorted by their `priority` field (lower number = runs first). Rules with the same priority maintain their file order.
 
-3. **Email Fetching**: When you run a command, Mailsort connects to your IMAP server (currently supports Yahoo) and fetches unread emails from the specified mailbox.
+3. **Email Fetching**: When you run `scan`, Mailsort fetches unread emails from the configured mailbox. When you run `preview` or `apply`, it fetches messages from the configured mailbox plus any source folders referenced by enabled rules.
 
 4. **Rule Matching with Chaining**: The rules engine (`internal/rules/matcher.go`) evaluates each email against your rules in priority order. A rule matches if ALL specified criteria are met:
-   - The sender contains any of the `from_contains` strings (if specified)
-   - The subject contains any of the `subject_any` strings (if specified)
+   - The sender contains any of the `from_contains` strings (if specified, case-insensitive)
+   - The source mailbox matches `folder` (if specified)
+   - The subject contains any of the `subject_any` strings (if specified, case-insensitive)
    - The body contains any of the `body_any` strings (if specified)
    - The email date is after `date_after` (if specified, RFC3339 or relative like "-7d")
    - The email date is before `date_before` (if specified, RFC3339 or relative like "-30d")
+   - The email is older than `older_than` or newer than `newer_than` (if specified)
+   - The email unread/read state matches `unread` (if specified)
    - The email has attachments matches `has_attachments` (if specified)
    - The email size is at least `min_size` bytes (if specified)
    - The email size is at most `max_size` bytes (if specified)
@@ -172,8 +249,13 @@ See `docs/imap-debug.md` for a full command reference and raw IMAP examples.
    - If `chain: false` (default), matching stops after the first rule applies
 
 6. **Actions**: When a rule matches an email:
-   - The email is moved to the `move_to` folder
-   - If `mark_as_read` is true, the email is marked as read
+   - If `delete` is true, the email is marked deleted and expunged, and no move is attempted
+   - If `copy_to` is set, the email is copied to that folder
+   - If `flag_important` is true, the email gets the IMAP `\Flagged` flag
+   - Otherwise, the email is moved to the `move_to` folder when `move_to` is set
+   - If `mark_as_read` is true, the email is marked as read before moving
+   - Matched rule scores are summed, and `auto_archive` moves low-score messages from INBOX when enabled, excluding mail from the last 24 hours or already flagged mail
+   - With `--dry-run`, Mailsort logs the planned action without modifying messages
 
 7. **Rule Management**: The `rules` command allows you to manage your rules directly from the CLI. Each rule is saved as an individual file in the rules directory, named using the pattern `<priority>-<name>.yaml`.
 
@@ -191,6 +273,6 @@ See `docs/imap-debug.md` for a full command reference and raw IMAP examples.
 |---------|-------------|
 | `init` | Create missing IMAP folders required by enabled rules |
 | `scan` | List unread emails in the mailbox |
-| `preview` | Show which emails match which rules (without moving) |
-| `apply` | Move matching emails to their destination folders (use `--dry-run` to preview) |
+| `preview` | Show which emails match which rules/actions without modifying mail |
+| `apply` | Move/delete/mark matching emails (use `--dry-run` to preview apply behavior) |
 | `rules` | Manage rules (list, add, remove, update) |

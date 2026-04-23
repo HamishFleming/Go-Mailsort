@@ -2,14 +2,14 @@
 
 ## Synopsis
 
-CLI email triaging tool that sorts mail between IMAP folders based on configurable rules (from/subject/body matching). Modular architecture with provider pattern for different IMAP backends (Yahoo, Gmail, etc).
+CLI email triaging tool that sorts, copies, flags, auto-archives, or deletes mail based on configurable rules (from/subject/body/date/age/folder/unread matching). Modular architecture with provider pattern for different IMAP backends (Yahoo, Gmail, etc).
 
 ## Commands
 
 - `mailsort scan` - list unread emails  
 - `mailsort init` - create missing IMAP folders required by enabled rules
-- `mailsort preview` - show which emails match which rules (with summary)
-- `mailsort apply` - move matching emails (dry-run with --dry-run)
+- `mailsort preview` - show which emails match which rules/actions (with summary)
+- `mailsort apply` - move/copy/delete/flag/mark matching emails (dry-run with --dry-run)
 - `mailsort rules` - manage rules (list, add, remove, update, enable, disable)
 - `mailsort imap-debug` - inspect IMAP capabilities, mailboxes, flags, search
 
@@ -18,10 +18,33 @@ CLI email triaging tool that sorts mail between IMAP folders based on configurab
 - Feature branch `feature/imap-debug-toolkit` implementing issue #3
 - All core commands working: scan, preview, apply, rules
 - Rule filtering: date ranges (absolute & relative), attachments, size limits
+- Rule filtering: source folder, age (`older_than`/`newer_than`), unread/read status
+- Rule actions: move, copy, mark as read, flag important, delete, dry-run
+- Score-based auto-archive can move low-score mail from INBOX to Archive
 - Rule management with enable/disable functionality
 
 ## Recent Changes
 
+- Added `score`, `copy_to`, and `flag_important` rule fields.
+- Added IMAP copy and important-flag operations.
+- Apply now batches compatible IMAP operations by mailbox and destination/action instead of mutating one email at a time.
+- Added `auto_archive` config for score-based archiving from INBOX.
+- Auto-archive skips messages received in the last 24 hours and messages already flagged important.
+- Added `auto_archive.date_before` for archive eligibility dates such as `-7d`.
+- Added `.mailsort/rules/05-important-to-action.yaml` example to copy important mail to `To Action` and flag it.
+- Added disabled `.mailsort/rules/50-score-only-example.yaml` example for score-only rules.
+- Updated from/subject matching to be case-insensitive.
+- Added delete action for rules via `delete: true`.
+- Added source folder matching via `folder`.
+- Added unread/read status matching via `unread`.
+- Added age matching via `older_than` and `newer_than` durations.
+- Changed preview/apply to fetch the configured mailbox plus enabled rule source folders.
+- Added IMAP flag fetching so emails carry unread status.
+- Added IMAP delete and mailbox-aware move/mark-as-read operations.
+- Fixed dry-run detection so `mailsort apply --dry-run` works as documented.
+- Updated README with the expanded rule schema and delete/dry-run examples.
+- Added `.mailsort/rules/90-delete-old-linkedin.yaml` example to delete mail older than 2 days from the LinkedIn folder.
+- Updated preview summary to include total planned actions and counts by action, including delete.
 - Added `init` CLI command to verify required IMAP mailboxes and create missing folders.
 - Added IMAP mailbox listing/creation helpers for rule destination setup.
 - Fixed command error reporting so runtime failures print the actual command error.

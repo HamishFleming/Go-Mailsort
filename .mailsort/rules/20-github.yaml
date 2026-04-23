@@ -3,8 +3,6 @@
   priority: 20
   from_contains:
     - github.com
-  subject_any:
-    - GitHub
   body_any: []
   move_to: GitHub
   mark_as_read: true
