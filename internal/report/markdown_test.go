@@ -53,13 +53,36 @@ func TestRenderMarkdownOrdersImportantFirstAndShowsDryRun(t *testing.T) {
 	mustContain(t, md, "- Actions taken: 0")
 	mustContain(t, md, "- Planned actions: 2")
 	mustContain(t, md, "## Important")
-	mustContain(t, md, "### 1. Urgent contract question")
+	mustContain(t, md, "- [jane@example.com] Urgent contract question -> move to Important, mark as read")
 	mustContain(t, md, "## Newsletters / Bulk")
-	mustContain(t, md, "### 1. Weekly Product Update")
+	mustContain(t, md, "- [updates@example.com] Weekly Product Update -> move to Newsletters")
 
 	if strings.Index(md, "## Important") > strings.Index(md, "## Rule Matches") {
 		t.Fatalf("important section should render before rule matches")
 	}
+}
+
+func TestRenderMarkdownShowsRulesWhenThereIsNoAction(t *testing.T) {
+	result := Result{
+		Command:   "preview",
+		Mailbox:   "INBOX",
+		Timestamp: time.Date(2026, 4, 23, 18, 30, 0, 0, time.Local),
+		DryRun:    true,
+		Emails: []EmailResult{
+			{
+				Email: imapclient.Email{
+					Uid:     3,
+					Mailbox: "INBOX",
+					From:    "alerts@example.com",
+					Subject: "System notice",
+				},
+				Rules: []RuleInfo{{Name: "score-only", Priority: 20}},
+			},
+		},
+	}
+
+	md := RenderMarkdown(result)
+	mustContain(t, md, "- [alerts@example.com] System notice -> matched score-only")
 }
 
 func TestDefaultPath(t *testing.T) {

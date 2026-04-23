@@ -28,7 +28,7 @@ CLI email triaging tool that sorts, copies, flags, auto-archives, or deletes mai
 ## Recent Changes
 
 - Added `--summary-md` and `--summary-path` flags for `scan`, `preview`, and `apply`.
-- Added `internal/report` Markdown renderer with run metadata, counts, important-first grouping, per-email details, rule visibility, action status, and warnings section.
+- Added `internal/report` Markdown renderer with run metadata, counts, important-first grouping, compact one-line email entries (`[sender] subject -> action`), action status, and warnings section.
 - Wired summary generation into scan, preview, apply, including dry-run clarity for preview and `apply --dry-run`.
 - Documented Markdown summary report usage and deterministic importance heuristics in README.
 - Added `score`, `copy_to`, and `flag_important` rule fields.

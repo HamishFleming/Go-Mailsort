@@ -177,7 +177,7 @@ Apply groups compatible IMAP operations into batches by source mailbox and desti
 
 Add `--summary-md` to `scan`, `preview`, or `apply` to write a post-run Markdown report. By default reports are written to `./reports/mailsort-YYYY-MM-DD_HH-mm-ss.md`; use `--summary-path` for a stable path such as `./reports/latest.md`.
 
-Reports include run metadata, counts, matched rules, planned or applied actions, and per-email details. The renderer lists important mail first using deterministic heuristics: urgent subject keywords, high-priority or positive-score rules, flagged mail, attachments, and unmatched human-looking senders that do not look like bulk or automated mail. `preview` and `apply --dry-run` reports state that no mail was moved or modified.
+Reports include run metadata and counts, then compact one-line email entries in the form `[sender] subject -> action`. The renderer lists important mail first using deterministic heuristics: urgent subject keywords, high-priority or positive-score rules, flagged mail, attachments, and unmatched human-looking senders that do not look like bulk or automated mail. `preview` and `apply --dry-run` reports state that no mail was moved or modified.
 
 ### Manage rules
 

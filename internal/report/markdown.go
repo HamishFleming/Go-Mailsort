@@ -103,8 +103,8 @@ func RenderMarkdown(result Result) string {
 			fmt.Fprintf(&b, "- None\n")
 			continue
 		}
-		for i, email := range section.emails {
-			writeEmail(&b, i+1, email, result.DryRun)
+		for _, email := range section.emails {
+			writeEmailSummary(&b, email)
 		}
 	}
 
@@ -227,41 +227,27 @@ func sortEmailResults(emails []EmailResult) {
 	})
 }
 
-func writeEmail(b *strings.Builder, index int, result EmailResult, dryRun bool) {
-	subject := valueOr(result.Email.Subject, "(no subject)")
-	fmt.Fprintf(b, "### %d. %s\n", index, oneLine(subject))
-	fmt.Fprintf(b, "- From: %s\n", valueOr(result.Email.From, "unknown"))
-	fmt.Fprintf(b, "- Date: %s\n", formatDate(result.Email.Date))
-	fmt.Fprintf(b, "- Folder: %s\n", valueOr(result.Email.Mailbox, "INBOX"))
-	fmt.Fprintf(b, "- UID: %d\n", result.Email.Uid)
-	fmt.Fprintf(b, "- Score: %d\n", result.Score)
-	if result.Email.HasAttachments {
-		fmt.Fprintf(b, "- Attachments: yes\n")
-	}
-	if len(result.Rules) == 0 {
-		fmt.Fprintf(b, "- Rule: none\n")
-	} else {
-		for _, rule := range result.Rules {
-			fmt.Fprintf(b, "- Rule: %s (priority %d, move_to: %s, copy_to: %s, delete: %t, mark_as_read: %t, flag_important: %t, chain: %t)\n",
-				valueOr(rule.Name, "unnamed"), rule.Priority, valueOr(rule.MoveTo, "none"), valueOr(rule.CopyTo, "none"), rule.Delete, rule.MarkAsRead, rule.FlagImportant, rule.Chain)
-		}
-	}
+func writeEmailSummary(b *strings.Builder, result EmailResult) {
+	fmt.Fprintf(b, "- [%s] %s -> %s\n", compactField(result.Email.From, "unknown"), compactField(result.Email.Subject, "(no subject)"), actionSummary(result))
+}
+
+func actionSummary(result EmailResult) string {
 	if len(result.Actions) == 0 {
-		fmt.Fprintf(b, "- Action: none\n")
-	} else {
-		label := "Action"
-		if dryRun {
-			label = "Planned action"
+		if len(result.Rules) == 0 {
+			return "none"
 		}
-		for _, action := range result.Actions {
-			state := "planned"
-			if action.Applied {
-				state = "applied"
-			}
-			fmt.Fprintf(b, "- %s: %s (%s)\n", label, valueOr(action.Summary, "none"), state)
-		}
+		return "matched " + strings.Join(ruleNames(result.Rules), ", ")
 	}
-	fmt.Fprintf(b, "- Snippet: %s\n\n", snippet(result.Email.Body))
+
+	parts := make([]string, 0, len(result.Actions))
+	for _, action := range result.Actions {
+		part := valueOr(action.Summary, "none")
+		if action.Rule != "" {
+			part += " (rule: " + action.Rule + ")"
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func matchedCount(emails []EmailResult) int {
@@ -323,22 +309,17 @@ func ruleNames(rules []RuleInfo) []string {
 	return names
 }
 
-func formatDate(t time.Time) string {
-	if t.IsZero() {
-		return "unknown"
+func compactField(value, fallback string) string {
+	value = oneLine(value)
+	if value == "" {
+		return fallback
 	}
-	return t.Format("2006-01-02 15:04")
-}
-
-func snippet(body string) string {
-	body = strings.TrimSpace(oneLine(body))
-	if body == "" {
-		return "not available"
+	value = strings.ReplaceAll(value, "[", "(")
+	value = strings.ReplaceAll(value, "]", ")")
+	if len(value) > 120 {
+		return value[:117] + "..."
 	}
-	if len(body) > 180 {
-		return body[:177] + "..."
-	}
-	return body
+	return value
 }
 
 func oneLine(s string) string {
