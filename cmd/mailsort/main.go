@@ -21,8 +21,9 @@ var (
 func main() {
 	flag.StringVar(&configFile, "config", ".mailsort.yaml", "config file")
 	flag.BoolVar(&verbose, "v", false, "verbose logging")
-	flag.BoolVar(&dryRun, "dry-run", false, "don't actually move emails")
+	flag.BoolVar(&dryRun, "dry-run", false, "don't actually modify emails")
 	flag.Parse()
+	dryRun = dryRun || hasArg(os.Args[1:], "--dry-run") || hasArg(os.Args[1:], "-dry-run")
 
 	if flag.NArg() < 1 {
 		flag.Usage()
@@ -79,6 +80,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", runErr)
 		os.Exit(1)
 	}
+}
+
+func hasArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {

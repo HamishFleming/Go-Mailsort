@@ -12,11 +12,16 @@ import (
 )
 
 type Matcher struct {
-	rules []config.Rule
+	rules          []config.Rule
+	defaultMailbox string
 }
 
 func NewMatcher(rules []config.Rule) *Matcher {
 	return &Matcher{rules: rules}
+}
+
+func NewMatcherWithDefaultMailbox(rules []config.Rule, defaultMailbox string) *Matcher {
+	return &Matcher{rules: rules, defaultMailbox: strings.TrimSpace(defaultMailbox)}
 }
 
 func (m *Matcher) Match(email *imapclient.Email) []*config.Rule {
@@ -38,10 +43,24 @@ func (m *Matcher) matchRule(rule *config.Rule, email *imapclient.Email) bool {
 		return false
 	}
 
+	folder := strings.TrimSpace(rule.Folder)
+	if folder == "" {
+		folder = m.defaultMailbox
+	}
+	if folder != "" {
+		emailMailbox := strings.TrimSpace(email.Mailbox)
+		if emailMailbox == "" {
+			emailMailbox = "INBOX"
+		}
+		if !strings.EqualFold(folder, emailMailbox) {
+			return false
+		}
+	}
+
 	if len(rule.FromContains) > 0 {
 		matched := false
 		for _, f := range rule.FromContains {
-			if strings.Contains(email.From, f) {
+			if containsFold(email.From, f) {
 				matched = true
 				break
 			}
@@ -54,7 +73,7 @@ func (m *Matcher) matchRule(rule *config.Rule, email *imapclient.Email) bool {
 	if len(rule.SubjectAny) > 0 {
 		matched := false
 		for _, s := range rule.SubjectAny {
-			if strings.Contains(email.Subject, s) {
+			if containsFold(email.Subject, s) {
 				matched = true
 				break
 			}
@@ -83,6 +102,30 @@ func (m *Matcher) matchRule(rule *config.Rule, email *imapclient.Email) bool {
 		}
 	}
 
+	if rule.OlderThan != nil {
+		olderThan, err := parseAge(*rule.OlderThan)
+		if err != nil {
+			log.Printf("[WARN] invalid older_than format: %s", *rule.OlderThan)
+		} else if time.Since(email.Date) < olderThan {
+			return false
+		}
+	}
+
+	if rule.NewerThan != nil {
+		newerThan, err := parseAge(*rule.NewerThan)
+		if err != nil {
+			log.Printf("[WARN] invalid newer_than format: %s", *rule.NewerThan)
+		} else if time.Since(email.Date) > newerThan {
+			return false
+		}
+	}
+
+	if rule.Unread != nil {
+		if email.Unread != *rule.Unread {
+			return false
+		}
+	}
+
 	// Attachment filtering
 	if rule.HasAttachments != nil {
 		if email.HasAttachments != *rule.HasAttachments {
@@ -106,6 +149,10 @@ func (m *Matcher) matchRule(rule *config.Rule, email *imapclient.Email) bool {
 	return true
 }
 
+func containsFold(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
 func parseDate(s string) (time.Time, error) {
 	// Try relative date format (e.g., "-30d" for 30 days ago)
 	if strings.HasPrefix(s, "-") && strings.HasSuffix(s, "d") {
@@ -126,4 +173,22 @@ func parseDate(s string) (time.Time, error) {
 	}
 
 	return time.Time{}, fmt.Errorf("invalid date format: %s", s)
+}
+
+func parseAge(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty duration")
+	}
+
+	if strings.HasSuffix(s, "d") {
+		daysStr := strings.TrimSuffix(s, "d")
+		days, err := strconv.Atoi(daysStr)
+		if err != nil || days < 0 {
+			return 0, fmt.Errorf("invalid day duration: %s", s)
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+
+	return time.ParseDuration(s)
 }

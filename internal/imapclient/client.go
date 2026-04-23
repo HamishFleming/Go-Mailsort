@@ -12,11 +12,14 @@ import (
 
 type Email struct {
 	Uid            uint32
+	Mailbox        string
 	From           string
 	Subject        string
 	Body           string
 	Date           time.Time
 	Size           uint32
+	Unread         bool
+	Flagged        bool
 	HasAttachments bool
 }
 
@@ -37,6 +40,8 @@ type Client struct {
 	cfg  *Config
 	conn *client.Client
 }
+
+const maxUIDBatchSize = 5
 
 func Connect(cfg *Config) (*Client, error) {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
@@ -72,6 +77,22 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) FetchUnread(mailbox string) ([]Email, error) {
+	emails, err := c.Fetch(mailbox)
+	if err != nil {
+		return nil, err
+	}
+
+	unread := emails[:0]
+	for _, email := range emails {
+		if email.Unread {
+			unread = append(unread, email)
+		}
+	}
+
+	return unread, nil
+}
+
+func (c *Client) Fetch(mailbox string) ([]Email, error) {
 	mboxInfo, err := c.conn.Select(mailbox, false)
 	if err != nil {
 		return nil, fmt.Errorf("select: %w", err)
@@ -92,6 +113,7 @@ func (c *Client) FetchUnread(mailbox string) ([]Email, error) {
 		done <- c.conn.Fetch(seqSet, []imap.FetchItem{
 			imap.FetchEnvelope,
 			imap.FetchUid,
+			imap.FetchFlags,
 			imap.FetchBodyStructure,
 			imap.FetchRFC822Size,
 		}, ch)
@@ -115,10 +137,13 @@ func (c *Client) FetchUnread(mailbox string) ([]Email, error) {
 
 		emails = append(emails, Email{
 			Uid:            msg.Uid,
+			Mailbox:        mailbox,
 			From:           from,
 			Subject:        msg.Envelope.Subject,
 			Date:           msg.Envelope.Date,
 			Size:           msg.Size,
+			Unread:         !hasFlag(msg.Flags, imap.SeenFlag),
+			Flagged:        hasFlag(msg.Flags, imap.FlaggedFlag),
 			HasAttachments: hasAttachments,
 		})
 	}
@@ -204,6 +229,33 @@ func mailboxExists(existing map[string]struct{}, mailbox string) bool {
 }
 
 func (c *Client) Move(uid uint32, folder string) error {
+	return c.moveSelected(uid, folder)
+}
+
+func (c *Client) MoveFrom(mailbox string, uid uint32, folder string) error {
+	return c.MoveMany(mailbox, []uint32{uid}, folder)
+}
+
+func (c *Client) CopyTo(mailbox string, uid uint32, folder string) error {
+	return c.CopyMany(mailbox, []uint32{uid}, folder)
+}
+
+func (c *Client) CopyMany(mailbox string, uids []uint32, folder string) error {
+	if err := c.selectMailbox(mailbox); err != nil {
+		return err
+	}
+
+	for _, chunk := range uidChunks(uids) {
+		if err := c.conn.UidCopy(uidSeqSet(chunk), folder); err != nil {
+			return fmt.Errorf("copy: %w", err)
+		}
+		log.Printf("[DEBUG] copied %d messages from %s to %s", len(chunk), mailbox, folder)
+	}
+
+	return nil
+}
+
+func (c *Client) moveSelected(uid uint32, folder string) error {
 	seqSet := &imap.SeqSet{}
 	seqSet.AddNum(uid)
 
@@ -212,7 +264,7 @@ func (c *Client) Move(uid uint32, folder string) error {
 	}
 	log.Printf("[DEBUG] copied to %s", folder)
 
-	if err := c.conn.UidStore(seqSet, imap.AddFlags, imap.DeletedFlag, nil); err != nil {
+	if err := c.storeUIDFlag(seqSet, imap.DeletedFlag); err != nil {
 		return fmt.Errorf("store: %w", err)
 	}
 
@@ -225,13 +277,134 @@ func (c *Client) Move(uid uint32, folder string) error {
 }
 
 func (c *Client) MarkAsRead(uid uint32) error {
+	return c.markAsReadSelected(uid)
+}
+
+func (c *Client) MarkAsReadIn(mailbox string, uid uint32) error {
+	return c.MarkAsReadMany(mailbox, []uint32{uid})
+}
+
+func (c *Client) MarkAsReadMany(mailbox string, uids []uint32) error {
+	if err := c.selectMailbox(mailbox); err != nil {
+		return err
+	}
+	for _, chunk := range uidChunks(uids) {
+		if err := c.storeUIDFlag(uidSeqSet(chunk), imap.SeenFlag); err != nil {
+			return fmt.Errorf("store: %w", err)
+		}
+	}
+	return nil
+}
+
+func (c *Client) FlagImportant(mailbox string, uid uint32) error {
+	return c.FlagImportantMany(mailbox, []uint32{uid})
+}
+
+func (c *Client) FlagImportantMany(mailbox string, uids []uint32) error {
+	if err := c.selectMailbox(mailbox); err != nil {
+		return err
+	}
+
+	for _, chunk := range uidChunks(uids) {
+		if err := c.storeUIDFlag(uidSeqSet(chunk), imap.FlaggedFlag); err != nil {
+			return fmt.Errorf("store: %w", err)
+		}
+	}
+	return nil
+}
+
+func (c *Client) markAsReadSelected(uid uint32) error {
 	seqSet := &imap.SeqSet{}
 	seqSet.AddNum(uid)
 
-	if err := c.conn.UidStore(seqSet, imap.AddFlags, imap.SeenFlag, nil); err != nil {
+	if err := c.storeUIDFlag(seqSet, imap.SeenFlag); err != nil {
 		return fmt.Errorf("store: %w", err)
 	}
 	return nil
+}
+
+func (c *Client) Delete(mailbox string, uid uint32) error {
+	return c.DeleteMany(mailbox, []uint32{uid})
+}
+
+func (c *Client) DeleteMany(mailbox string, uids []uint32) error {
+	if err := c.selectMailbox(mailbox); err != nil {
+		return err
+	}
+
+	for _, chunk := range uidChunks(uids) {
+		if err := c.storeUIDFlag(uidSeqSet(chunk), imap.DeletedFlag); err != nil {
+			return fmt.Errorf("store: %w", err)
+		}
+	}
+
+	if err := c.conn.Expunge(nil); err != nil {
+		return fmt.Errorf("expunge: %w", err)
+	}
+
+	log.Printf("[DEBUG] deleted %d messages from %s", len(uids), mailbox)
+	return nil
+}
+
+func (c *Client) MoveMany(mailbox string, uids []uint32, folder string) error {
+	if err := c.selectMailbox(mailbox); err != nil {
+		return err
+	}
+
+	for _, chunk := range uidChunks(uids) {
+		seqSet := uidSeqSet(chunk)
+		if err := c.conn.UidCopy(seqSet, folder); err != nil {
+			return fmt.Errorf("copy: %w", err)
+		}
+		log.Printf("[DEBUG] copied %d messages from %s to %s", len(chunk), mailbox, folder)
+
+		if err := c.storeUIDFlag(seqSet, imap.DeletedFlag); err != nil {
+			return fmt.Errorf("store: %w", err)
+		}
+	}
+
+	if err := c.conn.Expunge(nil); err != nil {
+		return fmt.Errorf("expunge: %w", err)
+	}
+
+	log.Printf("[DEBUG] moved %d messages from %s to %s", len(uids), mailbox, folder)
+	return nil
+}
+
+func (c *Client) selectMailbox(mailbox string) error {
+	if mailbox == "" {
+		mailbox = "INBOX"
+	}
+	if _, err := c.conn.Select(mailbox, false); err != nil {
+		return fmt.Errorf("select %q: %w", mailbox, err)
+	}
+	return nil
+}
+
+func (c *Client) storeUIDFlag(seqSet *imap.SeqSet, flag string) error {
+	return c.conn.UidStore(seqSet, imap.AddFlags, []interface{}{flag}, nil)
+}
+
+func uidSeqSet(uids []uint32) *imap.SeqSet {
+	seqSet := &imap.SeqSet{}
+	seqSet.AddNum(uids...)
+	return seqSet
+}
+
+func uidChunks(uids []uint32) [][]uint32 {
+	if len(uids) <= maxUIDBatchSize {
+		return [][]uint32{uids}
+	}
+
+	chunks := make([][]uint32, 0, (len(uids)+maxUIDBatchSize-1)/maxUIDBatchSize)
+	for start := 0; start < len(uids); start += maxUIDBatchSize {
+		end := start + maxUIDBatchSize
+		if end > len(uids) {
+			end = len(uids)
+		}
+		chunks = append(chunks, uids[start:end])
+	}
+	return chunks
 }
 
 func checkForAttachments(bs *imap.BodyStructure) bool {
@@ -254,5 +427,14 @@ func checkForAttachments(bs *imap.BodyStructure) bool {
 		return true
 	}
 
+	return false
+}
+
+func hasFlag(flags []string, want string) bool {
+	for _, flag := range flags {
+		if strings.EqualFold(flag, want) {
+			return true
+		}
+	}
 	return false
 }

@@ -91,9 +91,10 @@ func LoadRulesFromDir(dir string) ([]Rule, error) {
 }
 
 type Config struct {
-	Mailbox  string `yaml:"mailbox"`
-	RulesDir string `yaml:"rules_dir"`
-	Rules    []Rule  `yaml:"rules"`
+	Mailbox     string            `yaml:"mailbox"`
+	RulesDir    string            `yaml:"rules_dir"`
+	AutoArchive AutoArchiveConfig `yaml:"auto_archive"`
+	Rules       []Rule            `yaml:"rules"`
 }
 
 func LoadMainConfig(path string) (*Config, error) {
@@ -119,15 +120,31 @@ type Rule struct {
 	Name           string   `yaml:"name"`
 	Enabled        *bool    `yaml:"enabled,omitempty"`
 	Priority       int      `yaml:"priority"`
+	Score          int      `yaml:"score,omitempty"`
+	Folder         string   `yaml:"folder,omitempty"`
 	FromContains   []string `yaml:"from_contains"`
 	SubjectAny     []string `yaml:"subject_any"`
 	BodyAny        []string `yaml:"body_any"`
-	DateAfter      *string  `yaml:"date_after,omitempty"`      // RFC3339 format: "2024-01-15"
-	DateBefore     *string  `yaml:"date_before,omitempty"`     // RFC3339 format: "2024-12-31"
+	DateAfter      *string  `yaml:"date_after,omitempty"`  // RFC3339 format: "2024-01-15"
+	DateBefore     *string  `yaml:"date_before,omitempty"` // RFC3339 format: "2024-12-31"
+	OlderThan      *string  `yaml:"older_than,omitempty"`  // duration format: "30d", "12h"
+	NewerThan      *string  `yaml:"newer_than,omitempty"`  // duration format: "7d", "24h"
+	Unread         *bool    `yaml:"unread,omitempty"`
 	HasAttachments *bool    `yaml:"has_attachments,omitempty"`
-	MinSize        *uint32  `yaml:"min_size,omitempty"`        // in bytes
-	MaxSize        *uint32  `yaml:"max_size,omitempty"`        // in bytes
+	MinSize        *uint32  `yaml:"min_size,omitempty"` // in bytes
+	MaxSize        *uint32  `yaml:"max_size,omitempty"` // in bytes
 	MoveTo         string   `yaml:"move_to"`
+	CopyTo         string   `yaml:"copy_to,omitempty"`
+	Delete         bool     `yaml:"delete,omitempty"`
+	FlagImportant  bool     `yaml:"flag_important,omitempty"`
 	MarkAsRead     bool     `yaml:"mark_as_read"`
 	Chain          bool     `yaml:"chain"`
+}
+
+type AutoArchiveConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	Threshold  int    `yaml:"threshold"`
+	MoveTo     string `yaml:"move_to"`
+	Folder     string `yaml:"folder,omitempty"`
+	DateBefore string `yaml:"date_before,omitempty"`
 }

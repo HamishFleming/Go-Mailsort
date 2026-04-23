@@ -1,0 +1,15 @@
+- name: important_to_action
+  enabled: true
+  priority: 5
+  folder: INBOX
+  from_contains: []
+  subject_any:
+    - urgent
+    - action required
+    - action
+    - please review
+  body_any: []
+  score: 10
+  copy_to: To Action
+  flag_important: true
+  chain: true

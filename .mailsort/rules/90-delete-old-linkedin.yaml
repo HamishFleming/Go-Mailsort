@@ -1,0 +1,7 @@
+- name: delete_old_linkedin
+  enabled: true
+  priority: 90
+  folder: LinkedIn
+  older_than: 2d
+  delete: true
+  chain: false
